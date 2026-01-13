@@ -25,7 +25,7 @@ services:
     container_name: route-api
     environment:
       NODE_ENV: production
-      PORT: 3001
+      PORT: 3002
       DATABASE_URL: postgresql://route_user:route_password@postgres:5432/route_db
       JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-this-secret-key-in-production-min-32-chars}
       JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-this-refresh-secret-key-in-production-min-32-chars}
@@ -33,7 +33,7 @@ services:
       GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
       LOG_LEVEL: ${LOG_LEVEL:-error}
     ports:
-      - "3001:3001"
+      - "3002:3002"
     depends_on:
       postgres:
         condition: service_healthy
