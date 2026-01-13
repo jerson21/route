@@ -1,0 +1,37 @@
+FROM node:18-alpine
+
+# Instalar pnpm
+RUN corepack enable && corepack prepare pnpm@8.15.0 --activate
+
+WORKDIR /app
+
+# Copiar archivos de configuración del monorepo
+COPY package.json pnpm-lock.yaml* pnpm-workspace.yaml ./
+COPY turbo.json ./
+
+# Copiar paquetes compartidos
+COPY packages/shared ./packages/shared
+
+# Copiar configuración del frontend
+COPY apps/web/package.json ./apps/web/
+COPY apps/web/tsconfig.json ./apps/web/
+COPY apps/web/tsconfig.node.json ./apps/web/
+COPY apps/web/vite.config.ts ./apps/web/
+COPY apps/web/tailwind.config.js ./apps/web/
+COPY apps/web/postcss.config.js ./apps/web/
+COPY apps/web/index.html ./apps/web/
+
+# Instalar dependencias
+RUN pnpm install --frozen-lockfile || pnpm install
+
+# El código fuente se montará como volumen en docker-compose
+# No lo copiamos aquí para permitir hot reload
+
+WORKDIR /app/apps/web
+
+EXPOSE 5173
+
+# Ejecutar Vite en modo desarrollo con hot reload
+CMD ["pnpm", "dev"]
+
+

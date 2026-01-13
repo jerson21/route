@@ -1,0 +1,76 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: route-postgres
+    environment:
+      POSTGRES_USER: route_user
+      POSTGRES_PASSWORD: route_password
+      POSTGRES_DB: route_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U route_user -d route_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - route-network
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: route-api
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://route_user:route_password@postgres:5432/route_db
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-this-secret-key-in-production-min-32-chars}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-this-refresh-secret-key-in-production-min-32-chars}
+      FRONTEND_URL: http://localhost:80
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+      LOG_LEVEL: ${LOG_LEVEL:-error}
+    ports:
+      - "3001:3001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        sleep 3 &&
+        echo 'Pushing database schema...' &&
+        cd /app/apps/api && npx prisma db push --schema ../../prisma/schema.prisma --accept-data-loss &&
+        echo 'Running seed...' &&
+        node seed-docker.js &&
+        echo 'Database ready! Starting API...' &&
+        npm start
+      "
+    networks:
+      - route-network
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+    container_name: route-web
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+    networks:
+      - route-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  route-network:
+    driver: bridge
+

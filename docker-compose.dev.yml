@@ -1,0 +1,87 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: route-postgres-dev
+    environment:
+      POSTGRES_USER: route_user
+      POSTGRES_PASSWORD: route_password
+      POSTGRES_DB: route_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U route_user -d route_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - route-network-dev
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile.dev
+    container_name: route-api-dev
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      DATABASE_URL: postgresql://route_user:route_password@postgres:5432/route_db
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET:-change-this-secret-key-in-production-min-32-chars}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET:-change-this-refresh-secret-key-in-production-min-32-chars}
+      FRONTEND_URL: http://localhost:5173
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+    ports:
+      - "3001:3001"
+    volumes:
+      # Montar código fuente para hot reload
+      - ./apps/api/src:/app/apps/api/src
+      - ./apps/api/tsconfig.json:/app/apps/api/tsconfig.json
+      - ./apps/api/seed-docker.js:/app/apps/api/seed-docker.js
+      - ./prisma:/app/prisma
+      - ./packages/shared:/app/packages/shared
+      # Excluir node_modules del volumen para mejor rendimiento
+      - /app/apps/api/node_modules
+      - /app/node_modules
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - route-network-dev
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile.dev
+    container_name: route-web-dev
+    environment:
+      NODE_ENV: development
+      VITE_API_PROXY_TARGET: http://api:3001
+      VITE_GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
+    ports:
+      - "5173:5173"
+    volumes:
+      # Montar código fuente para hot reload
+      - ./apps/web/src:/app/apps/web/src
+      - ./apps/web/index.html:/app/apps/web/index.html
+      - ./apps/web/vite.config.ts:/app/apps/web/vite.config.ts
+      - ./apps/web/tailwind.config.js:/app/apps/web/tailwind.config.js
+      - ./apps/web/postcss.config.js:/app/apps/web/postcss.config.js
+      - ./packages/shared:/app/packages/shared
+      # Excluir node_modules del volumen para mejor rendimiento
+      - /app/apps/web/node_modules
+      - /app/node_modules
+    depends_on:
+      - api
+    networks:
+      - route-network-dev
+    restart: unless-stopped
+
+volumes:
+  postgres_data_dev:
+
+networks:
+  route-network-dev:
+    driver: bridge
+

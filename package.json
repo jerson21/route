@@ -1,0 +1,28 @@
+{
+  "name": "route-optimizer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Sistema de optimización de rutas de entrega",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "dev:api": "pnpm --filter @route-optimizer/api dev",
+    "dev:web": "pnpm --filter @route-optimizer/web dev",
+    "db:generate": "pnpm --filter @route-optimizer/api db:generate",
+    "db:push": "pnpm --filter @route-optimizer/api db:push",
+    "db:migrate": "pnpm --filter @route-optimizer/api db:migrate",
+    "db:studio": "pnpm --filter @route-optimizer/api db:studio",
+    "db:seed": "pnpm --filter @route-optimizer/api db:seed"
+  },
+  "devDependencies": {
+    "@prisma/client": "5.22.0",
+    "prisma": "5.22.0",
+    "turbo": "^2.0.0",
+    "typescript": "^5.3.0"
+  },
+  "packageManager": "pnpm@8.15.0",
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

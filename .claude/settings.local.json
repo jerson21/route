@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker-compose build:*)",
+      "Bash(pnpm install:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(docker-compose:*)",
+      "Bash(docker exec:*)",
+      "Bash(npx prisma generate:*)",
+      "Bash(docker logs:*)",
+      "Bash(pnpm --filter api exec prisma migrate dev:*)",
+      "Bash(pnpm --filter api exec prisma generate --schema ../../prisma/schema.prisma)",
+      "Bash(pnpm add:*)"
+    ]
+  }
+}

@@ -1,0 +1,105 @@
+version: "3.8"
+
+services:
+  traefik:
+    image: traefik:v2.10
+    container_name: route-traefik
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge=true"
+      - "--certificatesresolvers.letsencrypt.acme.httpchallenge.entrypoint=web"
+      - "--certificatesresolvers.letsencrypt.acme.email=${ACME_EMAIL:-admin@example.com}"
+      - "--certificatesresolvers.letsencrypt.acme.storage=/letsencrypt/acme.json"
+      # Redirect HTTP to HTTPS
+      - "--entrypoints.web.http.redirections.entrypoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - letsencrypt:/letsencrypt
+    networks:
+      - route-network
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: route-postgres
+    environment:
+      POSTGRES_USER: ${DB_USER:-route_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-route_password}
+      POSTGRES_DB: ${DB_NAME:-route_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-route_user} -d ${DB_NAME:-route_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - route-network
+    restart: unless-stopped
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: route-api
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://${DB_USER:-route_user}:${DB_PASSWORD:-route_password}@postgres:5432/${DB_NAME:-route_db}
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      FRONTEND_URL: https://${DOMAIN:-localhost}
+      GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "
+        echo 'Waiting for database...' &&
+        sleep 3 &&
+        echo 'Pushing database schema...' &&
+        cd /app/apps/api && npx prisma db push --schema ../../prisma/schema.prisma --accept-data-loss &&
+        echo 'Running seed...' &&
+        node seed-docker.js &&
+        echo 'Database ready! Starting API...' &&
+        npm start
+      "
+    networks:
+      - route-network
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY}
+    container_name: route-web
+    depends_on:
+      - api
+    labels:
+      - "traefik.enable=true"
+      # HTTP -> HTTPS redirect is handled by traefik globally
+      - "traefik.http.routers.web.rule=Host(`${DOMAIN:-localhost}`)"
+      - "traefik.http.routers.web.entrypoints=websecure"
+      - "traefik.http.routers.web.tls.certresolver=letsencrypt"
+      - "traefik.http.services.web.loadbalancer.server.port=80"
+    networks:
+      - route-network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  letsencrypt:
+
+networks:
+  route-network:
+    driver: bridge
