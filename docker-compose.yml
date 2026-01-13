@@ -60,7 +60,7 @@ services:
         VITE_GOOGLE_MAPS_API_KEY: ${GOOGLE_MAPS_API_KEY:-}
     container_name: route-web
     ports:
-      - "80:80"
+      - "8080:80"
     depends_on:
       - api
     networks:
