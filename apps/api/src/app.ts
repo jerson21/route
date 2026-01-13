@@ -14,12 +14,14 @@ const app = express();
 // Security middleware
 app.use(helmet());
 
-// CORS - permitir origenes para desarrollo movil
+// CORS - permitir origenes para desarrollo movil y produccion
 const allowedOrigins = [
   process.env.FRONTEND_URL || 'http://localhost:5173',
   'http://localhost:5173',
   'http://localhost:3001',
   'http://localhost',
+  'https://apiroutes.respaldoschile.cl',
+  'http://apiroutes.respaldoschile.cl',
 ];
 
 app.use(cors({
