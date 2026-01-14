@@ -254,6 +254,91 @@ PUT    /api/v1/addresses/:id/location         # Ajustar coords
 POST   /api/v1/addresses/:id/geocode          # Geocodificar
 ```
 
+### App Movil (Android)
+
+#### Dashboard del Conductor
+```
+GET /api/v1/routes/driver-dashboard
+```
+Respuesta:
+```json
+{
+  "success": true,
+  "data": {
+    "activeRoute": { ... } | null,    // Ruta activa (IN_PROGRESS/PAUSED)
+    "todayRoutes": [...],             // Rutas de hoy
+    "upcomingRoutes": [...],          // Rutas futuras (max 5)
+    "pastRoutes": [...],              // Rutas pasadas (max 10)
+    "hasActiveRoute": true | false    // Flag para bloquear UI
+  }
+}
+```
+
+#### Control de Rutas
+```
+GET  /api/v1/routes/active              # Obtener ruta activa del conductor
+POST /api/v1/routes/:id/start           # Iniciar ruta (error 409 si ya hay una activa)
+POST /api/v1/routes/:id/pause           # Pausar ruta
+POST /api/v1/routes/:id/resume          # Reanudar ruta pausada
+POST /api/v1/routes/:id/duplicate       # Duplicar ruta completada
+```
+
+#### Sistema de Pagos
+```
+POST /api/v1/routes/:id/stops/:stopId/payment
+```
+Body:
+```json
+{
+  "amount": 15000,           // Monto cobrado
+  "method": "CASH",          // CASH | CARD | TRANSFER | ONLINE
+  "paymentAmount": 15000,    // Monto esperado (opcional)
+  "notes": "Pago parcial"    // Notas (opcional)
+}
+```
+
+#### Preferencias del Usuario
+```
+GET   /api/v1/users/:userId/preferences     # Obtener preferencias
+PATCH /api/v1/users/:userId/preferences     # Actualizar preferencias
+```
+Campos disponibles:
+```json
+{
+  "navigationApp": "waze",           // google_maps | waze | apple_maps
+  "autoNavigateAfterDelivery": true, // Navegar auto despues de entrega
+  "autoNavigateExcludesPOD": true,   // Excluir si requiere POD
+  "soundEnabled": true,              // Sonidos habilitados
+  "vibrationEnabled": true,          // Vibracion habilitada
+  "keepScreenOn": true               // Mantener pantalla encendida
+}
+```
+
+### Autenticacion y Tokens
+
+#### Duracion de Tokens
+| Token | Duracion |
+|-------|----------|
+| Access Token | 15 minutos |
+| Refresh Token | 7 dias |
+
+#### Refresh Token
+Cuando el access token expira (API responde 401), usar:
+```
+POST /api/v1/auth/refresh
+Body: { "refreshToken": "token_guardado" }
+```
+Respuesta:
+```json
+{
+  "success": true,
+  "data": {
+    "accessToken": "nuevo_token",
+    "refreshToken": "nuevo_refresh"
+  }
+}
+```
+
 ### Otros
 ```
 GET/POST/PUT/DELETE /api/v1/users             # Usuarios
