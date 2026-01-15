@@ -5,6 +5,7 @@ import { authenticate } from '../middleware/auth.middleware.js';
 import { requireRole } from '../middleware/rbac.middleware.js';
 import { hashPassword } from '../utils/password.js';
 import { AppError } from '../middleware/errorHandler.js';
+import * as notificationService from '../services/notification.service.js';
 
 const router = Router();
 
@@ -316,6 +317,55 @@ router.patch('/:id/preferences', async (req: Request, res: Response, next: NextF
 
     res.json({ success: true, data: updatedUser.preferences });
   } catch (error) {
+    next(error);
+  }
+});
+
+// POST /users/:id/notify - Send push notification to user (Admin, Operator)
+const notifySchema = z.object({
+  title: z.string().min(1, 'Título requerido').max(100),
+  body: z.string().min(1, 'Mensaje requerido').max(500),
+  data: z.record(z.string()).optional() // Optional custom data
+});
+
+router.post('/:id/notify', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { title, body, data } = notifySchema.parse(req.body);
+    const targetUserId = req.params.id;
+
+    // Verify user exists
+    const user = await prisma.user.findUnique({
+      where: { id: targetUserId },
+      select: { id: true, firstName: true, fcmToken: true }
+    });
+
+    if (!user) {
+      throw new AppError(404, 'Usuario no encontrado');
+    }
+
+    if (!user.fcmToken) {
+      throw new AppError(400, 'El usuario no tiene notificaciones habilitadas');
+    }
+
+    // Send notification
+    const success = await notificationService.sendToUser(targetUserId, {
+      title,
+      body,
+      data: {
+        type: 'custom_message',
+        ...(data || {})
+      }
+    });
+
+    if (!success) {
+      throw new AppError(500, 'Error al enviar la notificación');
+    }
+
+    res.json({ success: true, message: 'Notificación enviada' });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return next(new AppError(400, error.errors[0].message));
+    }
     next(error);
   }
 });
