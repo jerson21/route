@@ -85,13 +85,18 @@ router.get('/me', authenticate, async (req: Request, res: Response, next: NextFu
 });
 
 // POST /auth/fcm-token - Save FCM token for push notifications
+// Accepts both { token: "..." } and { fcmToken: "..." } for compatibility
 const fcmTokenSchema = z.object({
-  token: z.string().min(10, 'Token inválido')
+  token: z.string().min(10, 'Token inválido').optional(),
+  fcmToken: z.string().min(10, 'Token inválido').optional()
+}).refine(data => data.token || data.fcmToken, {
+  message: 'Se requiere token o fcmToken'
 });
 
 router.post('/fcm-token', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { token } = fcmTokenSchema.parse(req.body);
+    const data = fcmTokenSchema.parse(req.body);
+    const token = data.token || data.fcmToken!;
     await notificationService.saveFcmToken(req.user!.id, token);
     res.json({ success: true, message: 'Token guardado' });
   } catch (error) {
