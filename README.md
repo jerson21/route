@@ -254,6 +254,74 @@ PUT    /api/v1/addresses/:id/location         # Ajustar coords
 POST   /api/v1/addresses/:id/geocode          # Geocodificar
 ```
 
+### Importacion desde Sistema Externo (PHP, etc.)
+
+Endpoint para crear rutas completas con paradas desde sistemas externos.
+
+```
+POST /api/v1/routes/import
+Authorization: Bearer <token>
+```
+
+**Request Body:**
+```json
+{
+  "route": {
+    "name": "Ruta 123 - 2024-01-15",
+    "scheduledDate": "2024-01-15",
+    "externalId": "123"
+  },
+  "stops": [
+    {
+      "address": {
+        "fullAddress": "Av. Providencia 1234, Santiago",
+        "unit": "Depto 501",
+        "latitude": -33.4256,
+        "longitude": -70.6097
+      },
+      "customer": {
+        "name": "Juan Perez",
+        "phone": "912345678",
+        "externalId": "12345678-9"
+      },
+      "order": {
+        "orderId": "ORD-12345",
+        "products": ["Producto 1", "Producto 2"],
+        "notes": "Tocar timbre 2 veces",
+        "packageCount": 3
+      }
+    }
+  ]
+}
+```
+
+**Campos importantes:**
+| Campo | Descripcion |
+|-------|-------------|
+| `address.latitude/longitude` | Opcional. Si se envian, se omite geocoding (mas rapido) |
+| `order.orderId` | **Requerido**. ID unico para mapear de vuelta a tu sistema |
+| `customer.externalId` | RUT, codigo cliente, etc. |
+
+**Respuesta exitosa (201):**
+```json
+{
+  "success": true,
+  "data": {
+    "routeId": "uuid-de-la-ruta",
+    "stops": [
+      {
+        "orderId": "ORD-12345",
+        "stopId": "uuid-de-la-parada",
+        "geocodeSuccess": true
+      }
+    ],
+    "summary": { "total": 1, "created": 1, "failed": 0 }
+  }
+}
+```
+
+> **Documentacion completa:** Ver [docs/API_IMPORT.md](docs/API_IMPORT.md)
+
 ### App Movil (Android)
 
 #### Dashboard del Conductor
