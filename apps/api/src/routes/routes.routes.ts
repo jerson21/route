@@ -1911,7 +1911,16 @@ router.post('/:id/stops/:stopId/in-transit', async (req: Request, res: Response,
           `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin}&destinations=${destination}&mode=driving&departure_time=now&key=${apiKey}`
         );
 
-        const data = await response.json();
+        const data = await response.json() as {
+          status: string;
+          rows: Array<{
+            elements: Array<{
+              status: string;
+              duration: { value: number };
+              duration_in_traffic?: { value: number };
+            }>;
+          }>;
+        };
 
         if (data.status === 'OK' && data.rows[0]?.elements[0]?.status === 'OK') {
           const durationInSeconds = data.rows[0].elements[0].duration_in_traffic?.value
