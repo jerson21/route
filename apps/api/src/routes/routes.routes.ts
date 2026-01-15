@@ -2395,9 +2395,19 @@ router.post('/import', requireRole('ADMIN', 'OPERATOR'), async (req: Request, re
           geocodeSuccess = geocodeResult.success;
           geocodeError = geocodeResult.error;
 
+          // Parse address parts from fullAddress (format: "Street, City, Region" or similar)
+          const addressParts = stopData.address.fullAddress.split(',').map(p => p.trim());
+          const street = addressParts[0] || stopData.address.fullAddress;
+          const city = addressParts[1] || 'Santiago'; // Default to Santiago if not provided
+          const state = addressParts[2] || null;
+
           // Create address regardless of geocode result
           address = await prisma.address.create({
             data: {
+              street,
+              city,
+              state,
+              country: 'Chile',
               fullAddress: stopData.address.fullAddress,
               unit: stopData.address.unit,
               latitude: geocodeResult.latitude || null,
