@@ -1821,6 +1821,15 @@ router.post('/:id/location', async (req: Request, res: Response, next: NextFunct
       }
     });
 
+    // Broadcast location update via SSE to web clients
+    broadcastToRoute(req.params.id, 'driver.location_updated', {
+      latitude,
+      longitude,
+      heading: heading || null,
+      speed: speed || null,
+      updatedAt: now.toISOString()
+    });
+
     res.json({
       success: true,
       data: {
@@ -1876,13 +1885,52 @@ router.post('/:id/stops/:stopId/in-transit', async (req: Request, res: Response,
     }
 
     // Actualizar estado de la parada a IN_TRANSIT
-    const updatedStop = await prisma.stop.update({
+    let updatedStop = await prisma.stop.update({
       where: { id: stopId },
       data: {
         status: 'IN_TRANSIT'
       },
       include: { address: true }
     });
+
+    // Calculate real ETA using Google Maps if driver location is available
+    let realEta: Date | null = null;
+    const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+
+    if (apiKey && route.driverLatitude && route.driverLongitude &&
+        updatedStop.address.latitude && updatedStop.address.longitude) {
+      try {
+        const origin = `${route.driverLatitude},${route.driverLongitude}`;
+        const destination = `${updatedStop.address.latitude},${updatedStop.address.longitude}`;
+
+        const response = await fetch(
+          `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin}&destinations=${destination}&mode=driving&departure_time=now&key=${apiKey}`
+        );
+
+        const data = await response.json();
+
+        if (data.status === 'OK' && data.rows[0]?.elements[0]?.status === 'OK') {
+          const durationInSeconds = data.rows[0].elements[0].duration_in_traffic?.value
+            || data.rows[0].elements[0].duration.value;
+
+          realEta = new Date(Date.now() + durationInSeconds * 1000);
+
+          // Update stop with real ETA
+          updatedStop = await prisma.stop.update({
+            where: { id: stopId },
+            data: {
+              estimatedArrival: realEta
+            },
+            include: { address: true }
+          });
+
+          console.log(`[IN-TRANSIT] Real ETA calculated: ${realEta.toISOString()} (${Math.round(durationInSeconds / 60)} min)`);
+        }
+      } catch (etaError) {
+        console.error('[IN-TRANSIT] Error calculating real ETA:', etaError);
+        // Continue without ETA - not critical
+      }
+    }
 
     // Obtener paradas restantes
     const remainingStops = await prisma.stop.findMany({
@@ -1912,7 +1960,9 @@ router.post('/:id/stops/:stopId/in-transit', async (req: Request, res: Response,
             latitude: route.driverLatitude,
             longitude: route.driverLongitude,
             updatedAt: route.driverLocationAt?.toISOString()
-          } : null
+          } : null,
+          realEta: realEta?.toISOString() || null,
+          realEtaMinutes: realEta ? Math.round((realEta.getTime() - Date.now()) / 60000) : null
         }
       };
 
@@ -1925,10 +1975,21 @@ router.post('/:id/stops/:stopId/in-transit', async (req: Request, res: Response,
     // Broadcast SSE event to web clients watching this route
     broadcastToRoute(routeId, 'stop.in_transit', {
       stop: updatedStop,
-      remainingStops: remainingStops.length
+      remainingStops: remainingStops.length,
+      realEta: realEta?.toISOString() || null,
+      driverLocation: route.driverLatitude && route.driverLongitude ? {
+        latitude: route.driverLatitude,
+        longitude: route.driverLongitude
+      } : null
     });
 
-    res.json({ success: true, data: updatedStop });
+    res.json({
+      success: true,
+      data: {
+        ...updatedStop,
+        realEta: realEta?.toISOString() || null
+      }
+    });
   } catch (error) {
     next(error);
   }

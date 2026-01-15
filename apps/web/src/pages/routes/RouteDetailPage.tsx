@@ -324,7 +324,7 @@ export function RouteDetailPage() {
     }
   }, [showOriginModal]);
 
-  // Polling for live driver location when route is IN_PROGRESS
+  // Initial driver location load and fallback polling (SSE is primary now)
   useEffect(() => {
     if (!route || route.status !== 'IN_PROGRESS') {
       setDriverLocation(null);
@@ -342,7 +342,7 @@ export function RouteDetailPage() {
       });
     }
 
-    // Poll for updates every 5 seconds
+    // Fallback polling every 30 seconds (SSE handles real-time updates)
     const pollInterval = setInterval(async () => {
       try {
         const response = await api.get(`/routes/${id}/driver-location`);
@@ -357,10 +357,9 @@ export function RouteDetailPage() {
           });
         }
       } catch (err) {
-        // Silently fail - location might not be available
-        console.debug('Could not fetch driver location:', err);
+        console.debug('Fallback location poll failed:', err);
       }
-    }, 5000);
+    }, 30000); // 30 seconds fallback
 
     return () => clearInterval(pollInterval);
   }, [route?.status, id]);
@@ -414,6 +413,19 @@ export function RouteDetailPage() {
       console.log('[SSE] Route completed:', event.data);
       fetchRoute();
       addToast('Ruta completada', 'success');
+    });
+
+    // Handle driver location updates - update map in real-time
+    eventSource.addEventListener('driver.location_updated', (event) => {
+      const data = JSON.parse(event.data);
+      console.log('[SSE] Driver location updated:', data);
+      setDriverLocation({
+        lat: data.latitude,
+        lng: data.longitude,
+        heading: data.heading,
+        speed: data.speed,
+        updatedAt: data.updatedAt
+      });
     });
 
     // Generic message handler for any other events
