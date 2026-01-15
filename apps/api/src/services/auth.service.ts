@@ -122,6 +122,21 @@ export async function refreshAccessToken(refreshToken: string) {
       role: storedToken.user.role as UserRole
     });
 
+    // Revocar token viejo y guardar el nuevo en BD
+    await prisma.$transaction([
+      prisma.refreshToken.update({
+        where: { id: storedToken.id },
+        data: { revokedAt: new Date() }
+      }),
+      prisma.refreshToken.create({
+        data: {
+          userId: storedToken.user.id,
+          tokenHash: tokens.refreshToken,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
+        }
+      })
+    ]);
+
     return tokens;
   } catch (error) {
     throw new AppError(401, 'Token de refresh inválido');
