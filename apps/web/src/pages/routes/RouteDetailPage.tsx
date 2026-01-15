@@ -16,6 +16,8 @@ interface Stop {
   status: string;
   estimatedArrival?: string;
   originalEstimatedArrival?: string; // ETA original congelado al iniciar ruta
+  completedAt?: string; // Hora real de entrega
+  arrivedAt?: string; // Hora real de llegada
   estimatedMinutes?: number;
   travelMinutesFromPrevious?: number;
   timeWindowStart?: string;
@@ -361,6 +363,20 @@ export function RouteDetailPage() {
     }, 5000);
 
     return () => clearInterval(pollInterval);
+  }, [route?.status, id]);
+
+  // Auto-refresh route data every 10 seconds when IN_PROGRESS
+  // This allows seeing real-time status changes from the Android app
+  useEffect(() => {
+    if (!route || route.status !== 'IN_PROGRESS') {
+      return;
+    }
+
+    const refreshInterval = setInterval(() => {
+      fetchRoute();
+    }, 10000); // 10 seconds
+
+    return () => clearInterval(refreshInterval);
   }, [route?.status, id]);
 
 
@@ -1279,6 +1295,33 @@ export function RouteDetailPage() {
           </div>
         )}
 
+        {/* Next Stop Banner - Shows when a stop is IN_TRANSIT */}
+        {route.status === 'IN_PROGRESS' && (() => {
+          const inTransitStop = route.stops.find(s => s.status === 'IN_TRANSIT');
+          if (!inTransitStop) return null;
+          const stopIndex = route.stops.findIndex(s => s.id === inTransitStop.id);
+          return (
+            <div className="px-4 py-3 bg-gradient-to-r from-blue-500 to-blue-600 text-white border-b border-blue-700">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center animate-pulse">
+                  <Truck className="w-5 h-5" />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs text-blue-100 uppercase tracking-wide font-medium">Próxima entrega</p>
+                  <p className="font-semibold truncate">{inTransitStop.address.customerName || inTransitStop.address.fullAddress}</p>
+                  {inTransitStop.address.customerName && (
+                    <p className="text-sm text-blue-100 truncate">{inTransitStop.address.fullAddress}</p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <span className="text-2xl font-bold">{String(stopIndex + 1).padStart(2, '0')}</span>
+                  <p className="text-xs text-blue-100">de {route.stops.length}</p>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
+
         {/* Stops List - Timeline Style */}
         <div className="flex-1 overflow-y-auto relative">
           {/* Overlay de optimización */}
@@ -1361,6 +1404,10 @@ export function RouteDetailPage() {
                     }
                   }
 
+                  // Determine if this stop is IN_TRANSIT (needs highlighting)
+                  const isInTransit = stop.status === 'IN_TRANSIT';
+                  const isCompleted = stop.status === 'COMPLETED';
+
                   return (
                   <div
                     key={stop.id}
@@ -1370,7 +1417,9 @@ export function RouteDetailPage() {
                     onDrop={(e) => handleDrop(e, stop.id)}
                     className={`relative flex items-stretch border-b border-gray-100 hover:bg-blue-50/30 transition-colors group ${
                       draggedStop === stop.id ? 'opacity-50 bg-blue-100' : ''
-                    } ${selectedStop?.id === stop.id ? 'bg-blue-50 border-l-2 border-l-blue-500' : ''}`}
+                    } ${selectedStop?.id === stop.id ? 'bg-blue-50 border-l-2 border-l-blue-500' : ''} ${
+                      isInTransit ? 'bg-blue-50 border-l-4 border-l-blue-500 animate-pulse' : ''
+                    }`}
                   >
                     {/* Timeline column */}
                     <div className="w-8 flex-shrink-0 flex flex-col items-center relative py-3">
@@ -1431,7 +1480,7 @@ export function RouteDetailPage() {
                       )}
                     </div>
 
-                    {/* Time column - Show original (planificada) and current ETA */}
+                    {/* Time column - Show completed time for COMPLETED, ETA for others */}
                     <div
                       className="flex items-center gap-2 pr-4 cursor-pointer min-w-[90px]"
                       onClick={() => {
@@ -1441,13 +1490,43 @@ export function RouteDetailPage() {
                         }
                       }}
                     >
-                      {formattedTime ? (
+                      {isCompleted && stop.completedAt ? (
+                        // COMPLETED stops: show actual completion time vs planned
+                        <div className="flex items-center gap-1.5">
+                          <Check className="w-4 h-4 text-green-500" />
+                          <div className="flex flex-col items-end">
+                            <span className="text-sm font-medium text-green-600">
+                              {new Date(stop.completedAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                            </span>
+                            {originalArrival && (
+                              <span className="text-xs text-gray-400" title="Hora planificada">
+                                Plan: {originalArrival.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                              </span>
+                            )}
+                            {/* Show if delivered early or late */}
+                            {originalArrival && (() => {
+                              const completedTime = new Date(stop.completedAt!);
+                              const diffMinutes = Math.round((completedTime.getTime() - originalArrival.getTime()) / 60000);
+                              if (diffMinutes > 5) {
+                                return <span className="text-xs text-orange-500">+{diffMinutes} min</span>;
+                              } else if (diffMinutes < -5) {
+                                return <span className="text-xs text-green-500">{diffMinutes} min</span>;
+                              }
+                              return <span className="text-xs text-green-500">A tiempo</span>;
+                            })()}
+                          </div>
+                          <ChevronDown className="w-4 h-4 text-gray-400" />
+                        </div>
+                      ) : formattedTime ? (
                         <div className="flex items-center gap-1.5">
                           {timeWindowStatus === 'ok' && (
                             <Check className="w-4 h-4 text-green-500" />
                           )}
                           {timeWindowStatus === 'late' && (
                             <X className="w-4 h-4 text-red-500" />
+                          )}
+                          {isInTransit && (
+                            <Truck className="w-4 h-4 text-blue-500" />
                           )}
                           <div className="flex flex-col items-end">
                             {/* ETA actual/recalculada */}
@@ -1458,9 +1537,11 @@ export function RouteDetailPage() {
                                   ? 'text-orange-600'
                                   : isEarly
                                     ? 'text-green-600'
-                                    : simulatedDepartureTime
-                                      ? 'text-orange-600'
-                                      : 'text-gray-700'
+                                    : isInTransit
+                                      ? 'text-blue-600'
+                                      : simulatedDepartureTime
+                                        ? 'text-orange-600'
+                                        : 'text-gray-700'
                             }`}>
                               {formattedTime}
                             </span>
