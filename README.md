@@ -297,6 +297,32 @@ Body:
 }
 ```
 
+#### Upload de Archivos (R2)
+```
+GET /api/v1/uploads/presigned-url?type=photo&stopId=xxx&routeId=xxx
+```
+Tipos disponibles: `photo`, `signature`, `document`
+
+Respuesta:
+```json
+{
+  "success": true,
+  "data": {
+    "uploadUrl": "https://xxx.r2.cloudflarestorage.com/...",
+    "key": "routes/xxx/photos/123-abc.jpg",
+    "publicUrl": "https://tu-dominio.com/routes/xxx/photos/123-abc.jpg",
+    "contentType": "image/jpeg",
+    "maxSize": 10485760,
+    "expiresIn": 900
+  }
+}
+```
+
+**Flujo de upload desde Android:**
+1. `GET /uploads/presigned-url?type=photo&stopId=xxx` → obtener URL
+2. `PUT uploadUrl` con imagen en body (Content-Type: image/jpeg)
+3. `POST /routes/:id/stops/:stopId/complete` con `{ photoUrl: key }`
+
 #### Preferencias del Usuario
 ```
 GET   /api/v1/users/:userId/preferences     # Obtener preferencias
