@@ -210,9 +210,11 @@ export function RouteDetailPage() {
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
-  const fetchRoute = async () => {
+  const fetchRoute = async (silent = false) => {
     try {
-      setIsLoading(true);
+      if (!silent) {
+        setIsLoading(true);
+      }
       const response = await api.get(`/routes/${id}`);
       const routeData = response.data.data;
       setRoute(routeData);
@@ -221,9 +223,13 @@ export function RouteDetailPage() {
         setDepotReturnTime(new Date(routeData.depotReturnTime));
       }
     } catch (err: any) {
-      setError(err.response?.data?.error || 'Error al cargar la ruta');
+      if (!silent) {
+        setError(err.response?.data?.error || 'Error al cargar la ruta');
+      }
     } finally {
-      setIsLoading(false);
+      if (!silent) {
+        setIsLoading(false);
+      }
     }
   };
 
@@ -398,39 +404,39 @@ export function RouteDetailPage() {
       console.debug('[SSE] Connection error, will auto-reconnect:', error);
     };
 
-    // Handle specific events
+    // Handle specific events - use silent refresh to avoid screen flashing
     eventSource.addEventListener('stop.in_transit', (event) => {
       console.log('[SSE] Stop in transit:', event.data);
-      // Refresh route data to get latest state
-      fetchRoute();
+      // Refresh route data to get latest state (silent)
+      fetchRoute(true);
     });
 
     eventSource.addEventListener('stop.status_changed', (event) => {
       console.log('[SSE] Stop status changed:', event.data);
       const data = JSON.parse(event.data);
-      // Update route directly if full route is provided, otherwise fetch
+      // Update route directly if full route is provided, otherwise fetch silently
       if (data.route) {
         setRoute(data.route);
       } else {
-        fetchRoute();
+        fetchRoute(true);
       }
     });
 
     eventSource.addEventListener('route.loaded', (event) => {
       console.log('[SSE] Route loaded (truck):', event.data);
-      fetchRoute();
+      fetchRoute(true);
       addToast('Camion cargado', 'info');
     });
 
     eventSource.addEventListener('route.started', (event) => {
       console.log('[SSE] Route started:', event.data);
-      fetchRoute(); // Refresh to get startedAt and recalculated ETAs
+      fetchRoute(true); // Refresh to get startedAt and recalculated ETAs
       addToast('Ruta iniciada por el conductor', 'info');
     });
 
     eventSource.addEventListener('route.completed', (event) => {
       console.log('[SSE] Route completed:', event.data);
-      fetchRoute();
+      fetchRoute(true);
       addToast('Ruta completada', 'success');
     });
 
