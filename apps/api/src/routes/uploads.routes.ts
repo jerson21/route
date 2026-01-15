@@ -1,9 +1,9 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { randomUUID } from 'crypto';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { AppError } from '../middleware/errorHandler.js';
-import { v4 as uuidv4 } from 'uuid';
 
 const router = Router();
 
@@ -66,7 +66,7 @@ router.get('/presigned-url', async (req: Request, res: Response, next: NextFunct
 
     // Generar key único para el archivo
     const timestamp = Date.now();
-    const uniqueId = uuidv4().slice(0, 8);
+    const uniqueId = randomUUID().slice(0, 8);
     const extension = type === 'signature' ? 'png' : (type === 'document' ? 'pdf' : 'jpg');
 
     let key = `${fileConfig.folder}/${timestamp}-${uniqueId}`;
