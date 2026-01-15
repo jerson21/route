@@ -7,7 +7,7 @@ import { StopDetailPanel } from '../../components/stops/StopDetailPanel';
 import { ToastContainer, useToast } from '../../components/ui/Toast';
 import {
   MapPin, User, Play, CheckCircle, Trash2, ArrowLeft,
-  Plus, Database, Search, X, GripVertical, Navigation, Loader2, Edit2, ChevronDown, Home, Check, Clock, AlertTriangle, Truck, Send
+  Plus, Database, Search, X, GripVertical, Navigation, Loader2, Edit2, ChevronDown, Home, Check, Clock, AlertTriangle, Truck, Send, MessageCircle
 } from 'lucide-react';
 
 interface Stop {
@@ -186,6 +186,12 @@ export function RouteDetailPage() {
   const [googleUnit, setGoogleUnit] = useState('');
   const [googleNotes, setGoogleNotes] = useState('');
 
+  // Estado para enviar mensaje al conductor
+  const [showMessageModal, setShowMessageModal] = useState(false);
+  const [messageTitle, setMessageTitle] = useState('');
+  const [messageBody, setMessageBody] = useState('');
+  const [sendingMessage, setSendingMessage] = useState(false);
+
   // Location to focus/zoom on the map
   const [focusLocation, setFocusLocation] = useState<{ lat: number; lng: number } | null>(null);
 
@@ -313,6 +319,20 @@ export function RouteDetailPage() {
     fetchDrivers();
   }, [id]);
 
+  // Polling for route updates when route is active (SCHEDULED or IN_PROGRESS)
+  // SSE handles IN_PROGRESS real-time, but polling catches SCHEDULED changes and SSE failures
+  useEffect(() => {
+    if (!route || !['SCHEDULED', 'IN_PROGRESS'].includes(route.status)) {
+      return;
+    }
+
+    const pollInterval = setInterval(() => {
+      fetchRoute();
+    }, 10000); // Poll every 10 seconds for active routes
+
+    return () => clearInterval(pollInterval);
+  }, [route?.status, id]);
+
   useEffect(() => {
     if (addMethod === 'database') {
       fetchDbAddresses(dbSearch);
@@ -365,9 +385,9 @@ export function RouteDetailPage() {
     return () => clearInterval(pollInterval);
   }, [route?.status, id]);
 
-  // SSE connection for real-time updates when route is IN_PROGRESS
+  // SSE connection for real-time updates when route is SCHEDULED or IN_PROGRESS
   useEffect(() => {
-    if (!route || route.status !== 'IN_PROGRESS') {
+    if (!route || !['SCHEDULED', 'IN_PROGRESS'].includes(route.status)) {
       return;
     }
 
@@ -408,6 +428,12 @@ export function RouteDetailPage() {
       } else {
         fetchRoute();
       }
+    });
+
+    eventSource.addEventListener('route.loaded', (event) => {
+      console.log('[SSE] Route loaded (truck):', event.data);
+      fetchRoute();
+      addToast('Camion cargado', 'info');
     });
 
     eventSource.addEventListener('route.started', (event) => {
@@ -489,6 +515,30 @@ export function RouteDetailPage() {
       addToast(err.response?.data?.error || 'Error al completar ruta', 'error');
     } finally {
       setActionLoading(false);
+    }
+  };
+
+  const handleSendMessage = async () => {
+    if (!route?.assignedTo || !messageTitle.trim() || !messageBody.trim()) return;
+
+    try {
+      setSendingMessage(true);
+      await api.post(`/users/${route.assignedTo.id}/notify`, {
+        title: messageTitle.trim(),
+        body: messageBody.trim(),
+        data: {
+          routeId: route.id,
+          routeName: route.name
+        }
+      });
+      addToast('Mensaje enviado al conductor', 'success');
+      setShowMessageModal(false);
+      setMessageTitle('');
+      setMessageBody('');
+    } catch (err: any) {
+      addToast(err.response?.data?.error || 'Error al enviar mensaje', 'error');
+    } finally {
+      setSendingMessage(false);
     }
   };
 
@@ -1849,7 +1899,19 @@ export function RouteDetailPage() {
             </div>
           </div>
         )}
+
       </div>
+
+      {/* Floating Message Button - fixed position, visible when route has assigned driver */}
+      {route.assignedTo && (
+        <button
+          onClick={() => setShowMessageModal(true)}
+          className="fixed bottom-6 right-6 bg-blue-600 hover:bg-blue-700 text-white p-4 rounded-full shadow-lg transition-all hover:scale-105 z-40"
+          title={`Enviar mensaje a ${route.assignedTo.firstName}`}
+        >
+          <MessageCircle className="w-6 h-6" />
+        </button>
+      )}
 
       {/* Assign Driver Modal */}
       {showAssignModal && (
@@ -2231,6 +2293,77 @@ export function RouteDetailPage() {
                 className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
               >
                 Agregar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Send Message Modal */}
+      {showMessageModal && route?.assignedTo && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-md">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-blue-100 rounded-full flex items-center justify-center">
+                  <MessageCircle className="w-5 h-5 text-blue-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Enviar Mensaje</h3>
+                  <p className="text-sm text-gray-500">a {route.assignedTo.firstName} {route.assignedTo.lastName}</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Titulo
+                </label>
+                <input
+                  type="text"
+                  value={messageTitle}
+                  onChange={(e) => setMessageTitle(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  placeholder="Ej: Aviso importante"
+                  maxLength={100}
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Mensaje
+                </label>
+                <textarea
+                  value={messageBody}
+                  onChange={(e) => setMessageBody(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                  placeholder="Escribe tu mensaje aqui..."
+                  rows={4}
+                  maxLength={500}
+                />
+                <p className="mt-1 text-xs text-gray-400 text-right">{messageBody.length}/500</p>
+              </div>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 flex gap-2">
+              <button
+                onClick={() => {
+                  setShowMessageModal(false);
+                  setMessageTitle('');
+                  setMessageBody('');
+                }}
+                disabled={sendingMessage}
+                className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleSendMessage}
+                disabled={sendingMessage || !messageTitle.trim() || !messageBody.trim()}
+                className="flex-1 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {sendingMessage && <Loader2 className="w-4 h-4 animate-spin" />}
+                <Send className="w-4 h-4" />
+                Enviar
               </button>
             </div>
           </div>

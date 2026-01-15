@@ -496,6 +496,12 @@ router.post('/:id/load', async (req: Request, res: Response, next: NextFunction)
       }
     });
 
+    // Broadcast SSE event for truck loaded
+    broadcastToRoute(req.params.id, 'route.loaded', {
+      routeId: updatedRoute.id,
+      loadedAt: updatedRoute.loadedAt
+    });
+
     res.json({ success: true, data: updatedRoute });
   } catch (error) {
     next(error);

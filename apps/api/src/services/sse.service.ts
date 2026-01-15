@@ -83,6 +83,9 @@ export function getConnectionCount(routeId: string): number {
 // Event types for type safety
 export type SSEEventType =
   | 'route.updated'
+  | 'route.loaded'
+  | 'route.started'
+  | 'route.sent'
   | 'stop.status_changed'
   | 'stop.in_transit'
   | 'stop.completed'
