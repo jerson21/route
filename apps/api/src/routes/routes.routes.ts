@@ -18,6 +18,7 @@ import {
 import { getWebhookConfig, getNotificationConfig } from './settings.routes.js';
 import { addRouteConnection, removeRouteConnection, broadcastToRoute, sendHeartbeat } from '../services/sse.service.js';
 import * as notificationService from '../services/notification.service.js';
+import { geocodeAddress } from '../services/geocoding.service.js';
 
 const router = Router();
 
@@ -2293,6 +2294,250 @@ router.delete('/:id', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res
 
     res.json({ success: true, message: 'Ruta eliminada' });
   } catch (error) {
+    next(error);
+  }
+});
+
+// ============================================================================
+// POST /routes/import - Import route with stops from external system
+// ============================================================================
+
+const importStopSchema = z.object({
+  address: z.object({
+    fullAddress: z.string().min(5, 'Dirección requerida'),
+    unit: z.string().optional(), // Depto, Of., Casa, etc.
+  }),
+  customer: z.object({
+    name: z.string().optional(),
+    phone: z.string().optional(),
+    externalId: z.string().optional(), // RUT, código agencia, etc.
+  }).optional(),
+  order: z.object({
+    orderId: z.string(), // num_orden o AGENCIA-codigo
+    products: z.array(z.string()).optional(),
+    notes: z.string().optional(),
+    sellerName: z.string().optional(), // RespaldosChile - DOMICILIO/AGENCIA
+    packageCount: z.number().optional(),
+  }),
+  // Optional time window
+  timeWindowStart: z.string().optional(), // HH:mm format
+  timeWindowEnd: z.string().optional(),
+  priority: z.number().optional(),
+  estimatedMinutes: z.number().optional(),
+});
+
+const importRouteSchema = z.object({
+  route: z.object({
+    name: z.string().min(1, 'Nombre de ruta requerido'),
+    scheduledDate: z.string().optional(), // YYYY-MM-DD
+    description: z.string().optional(),
+    depotId: z.string().optional(),
+    externalId: z.string().optional(), // ID externo de la ruta
+  }),
+  stops: z.array(importStopSchema).min(1, 'Se requiere al menos una parada'),
+  options: z.object({
+    autoOptimize: z.boolean().optional(), // Auto-optimizar después de importar
+    assignToDriverId: z.string().optional(), // Asignar a un conductor
+  }).optional(),
+});
+
+router.post('/import', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = importRouteSchema.parse(req.body);
+    const { route: routeData, stops: stopsData, options } = data;
+
+    console.log(`[IMPORT] Starting import of route "${routeData.name}" with ${stopsData.length} stops`);
+
+    // 1. Create the route
+    const route = await prisma.route.create({
+      data: {
+        name: routeData.name,
+        description: routeData.description,
+        scheduledDate: routeData.scheduledDate ? new Date(routeData.scheduledDate) : null,
+        depotId: routeData.depotId || null,
+        createdById: req.user!.id,
+        status: 'DRAFT',
+      },
+    });
+
+    console.log(`[IMPORT] Route created with ID: ${route.id}`);
+
+    // 2. Process each stop: geocode addresses and create stops
+    const stopResults: Array<{
+      orderId: string;
+      stopId: string;
+      addressId: string;
+      geocodeSuccess: boolean;
+      error?: string;
+    }> = [];
+
+    let sequenceOrder = 1;
+
+    for (const stopData of stopsData) {
+      try {
+        // Check if address already exists (by fullAddress)
+        let address = await prisma.address.findFirst({
+          where: {
+            fullAddress: {
+              equals: stopData.address.fullAddress,
+              mode: 'insensitive'
+            }
+          }
+        });
+
+        let geocodeSuccess = true;
+        let geocodeError: string | undefined;
+
+        if (!address) {
+          // Geocode the address
+          const geocodeResult = await geocodeAddress(stopData.address.fullAddress);
+
+          geocodeSuccess = geocodeResult.success;
+          geocodeError = geocodeResult.error;
+
+          // Create address regardless of geocode result
+          address = await prisma.address.create({
+            data: {
+              fullAddress: stopData.address.fullAddress,
+              unit: stopData.address.unit,
+              latitude: geocodeResult.latitude || null,
+              longitude: geocodeResult.longitude || null,
+              geocodeStatus: geocodeResult.success ? 'SUCCESS' : 'FAILED',
+              customerName: stopData.customer?.name,
+              customerPhone: stopData.customer?.phone,
+              createdById: req.user!.id,
+            }
+          });
+
+          console.log(`[IMPORT] Address created: ${address.id} (geocode: ${geocodeSuccess})`);
+        } else {
+          // Update address with customer info if provided
+          if (stopData.customer?.name || stopData.customer?.phone || stopData.address.unit) {
+            address = await prisma.address.update({
+              where: { id: address.id },
+              data: {
+                ...(stopData.customer?.name && { customerName: stopData.customer.name }),
+                ...(stopData.customer?.phone && { customerPhone: stopData.customer.phone }),
+                ...(stopData.address.unit && { unit: stopData.address.unit }),
+              }
+            });
+          }
+          console.log(`[IMPORT] Address found: ${address.id}`);
+        }
+
+        // Parse time windows if provided
+        let timeWindowStart: Date | null = null;
+        let timeWindowEnd: Date | null = null;
+
+        if (stopData.timeWindowStart && routeData.scheduledDate) {
+          const [hours, minutes] = stopData.timeWindowStart.split(':').map(Number);
+          timeWindowStart = new Date(routeData.scheduledDate);
+          timeWindowStart.setHours(hours, minutes, 0, 0);
+        }
+
+        if (stopData.timeWindowEnd && routeData.scheduledDate) {
+          const [hours, minutes] = stopData.timeWindowEnd.split(':').map(Number);
+          timeWindowEnd = new Date(routeData.scheduledDate);
+          timeWindowEnd.setHours(hours, minutes, 0, 0);
+        }
+
+        // Create the stop
+        const stop = await prisma.stop.create({
+          data: {
+            routeId: route.id,
+            addressId: address.id,
+            sequenceOrder: sequenceOrder++,
+            status: 'PENDING',
+            // Customer info
+            recipientName: stopData.customer?.name,
+            recipientPhone: stopData.customer?.phone,
+            clientName: stopData.customer?.name,
+            // Order info
+            externalId: stopData.order.orderId,
+            products: stopData.order.products ? JSON.stringify(stopData.order.products) : null,
+            orderNotes: stopData.order.notes,
+            sellerName: stopData.order.sellerName,
+            packageCount: stopData.order.packageCount || 1,
+            // Time window
+            timeWindowStart,
+            timeWindowEnd,
+            priority: stopData.priority || 0,
+            estimatedMinutes: stopData.estimatedMinutes || 15,
+          },
+        });
+
+        stopResults.push({
+          orderId: stopData.order.orderId,
+          stopId: stop.id,
+          addressId: address.id,
+          geocodeSuccess,
+          error: geocodeError,
+        });
+
+        console.log(`[IMPORT] Stop created: ${stop.id} for order ${stopData.order.orderId}`);
+
+        // Rate limiting for geocoding
+        await new Promise(resolve => setTimeout(resolve, 100));
+
+      } catch (stopError: any) {
+        console.error(`[IMPORT] Error processing stop for order ${stopData.order.orderId}:`, stopError);
+        stopResults.push({
+          orderId: stopData.order.orderId,
+          stopId: '',
+          addressId: '',
+          geocodeSuccess: false,
+          error: stopError.message,
+        });
+      }
+    }
+
+    // 3. Count successes and failures
+    const successCount = stopResults.filter(r => r.stopId).length;
+    const failedCount = stopResults.filter(r => !r.stopId).length;
+    const geocodeFailedCount = stopResults.filter(r => !r.geocodeSuccess && r.stopId).length;
+
+    // 4. Optional: Auto-optimize the route
+    if (options?.autoOptimize && successCount >= 2) {
+      console.log(`[IMPORT] Auto-optimizing route...`);
+      // Note: Optimization would need to be called separately or integrated here
+    }
+
+    // 5. Optional: Assign to driver
+    if (options?.assignToDriverId) {
+      await prisma.route.update({
+        where: { id: route.id },
+        data: {
+          assignedToId: options.assignToDriverId,
+          status: 'SCHEDULED',
+        }
+      });
+      console.log(`[IMPORT] Route assigned to driver: ${options.assignToDriverId}`);
+    }
+
+    // 6. Return response with mapping
+    res.status(201).json({
+      success: true,
+      data: {
+        routeId: route.id,
+        routeName: route.name,
+        externalId: routeData.externalId,
+        status: options?.assignToDriverId ? 'SCHEDULED' : 'DRAFT',
+        stops: stopResults,
+        summary: {
+          total: stopsData.length,
+          created: successCount,
+          failed: failedCount,
+          geocodeFailed: geocodeFailedCount,
+        }
+      }
+    });
+
+    console.log(`[IMPORT] Import completed: ${successCount}/${stopsData.length} stops created`);
+
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return next(new AppError(400, error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')));
+    }
     next(error);
   }
 });
