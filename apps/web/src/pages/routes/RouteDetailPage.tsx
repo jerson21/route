@@ -7,7 +7,7 @@ import { StopDetailPanel } from '../../components/stops/StopDetailPanel';
 import { ToastContainer, useToast } from '../../components/ui/Toast';
 import {
   MapPin, User, Play, CheckCircle, Trash2, ArrowLeft,
-  Plus, Database, Search, X, GripVertical, Navigation, Loader2, Edit2, ChevronDown, Home, Check, Clock, AlertTriangle
+  Plus, Database, Search, X, GripVertical, Navigation, Loader2, Edit2, ChevronDown, Home, Check, Clock, AlertTriangle, Truck
 } from 'lucide-react';
 
 interface Stop {
@@ -109,6 +109,16 @@ const statusLabels: Record<string, string> = {
   IN_PROGRESS: 'En Progreso',
   COMPLETED: 'Completada',
   CANCELLED: 'Cancelada'
+};
+
+// Stop status configuration
+const stopStatusConfig: Record<string, { label: string; color: string; bgColor: string; icon: 'check' | 'x' | 'clock' | 'truck' | 'skip' }> = {
+  PENDING: { label: 'Pendiente', color: 'text-gray-500', bgColor: 'bg-gray-100', icon: 'clock' },
+  IN_TRANSIT: { label: 'En camino', color: 'text-blue-600', bgColor: 'bg-blue-100', icon: 'truck' },
+  ARRIVED: { label: 'Llegó', color: 'text-purple-600', bgColor: 'bg-purple-100', icon: 'clock' },
+  COMPLETED: { label: 'Completada', color: 'text-green-600', bgColor: 'bg-green-100', icon: 'check' },
+  FAILED: { label: 'Fallida', color: 'text-red-600', bgColor: 'bg-red-100', icon: 'x' },
+  SKIPPED: { label: 'Omitida', color: 'text-yellow-600', bgColor: 'bg-yellow-100', icon: 'skip' }
 };
 
 export function RouteDetailPage() {
@@ -1404,15 +1414,26 @@ export function RouteDetailPage() {
                         }
                       }}
                     >
-                      <p className="text-sm font-medium text-gray-900 leading-tight pr-20">{stop.address.fullAddress}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-sm font-medium text-gray-900 leading-tight truncate">{stop.address.fullAddress}</p>
+                        {/* Status badge */}
+                        {stop.status !== 'PENDING' && (
+                          <span className={`flex-shrink-0 inline-flex items-center gap-1 px-1.5 py-0.5 text-xs font-medium rounded ${stopStatusConfig[stop.status]?.bgColor || 'bg-gray-100'} ${stopStatusConfig[stop.status]?.color || 'text-gray-600'}`}>
+                            {stopStatusConfig[stop.status]?.icon === 'check' && <Check className="w-3 h-3" />}
+                            {stopStatusConfig[stop.status]?.icon === 'x' && <X className="w-3 h-3" />}
+                            {stopStatusConfig[stop.status]?.icon === 'truck' && <Truck className="w-3 h-3" />}
+                            {stopStatusConfig[stop.status]?.label || stop.status}
+                          </span>
+                        )}
+                      </div>
                       {stop.address.customerName && (
                         <p className="text-xs text-gray-500 mt-0.5">{stop.address.customerName}</p>
                       )}
                     </div>
 
-                    {/* Time column */}
+                    {/* Time column - Show original (planificada) and current ETA */}
                     <div
-                      className="flex items-center gap-2 pr-4 cursor-pointer"
+                      className="flex items-center gap-2 pr-4 cursor-pointer min-w-[90px]"
                       onClick={() => {
                         setSelectedStop({ id: stop.id, index });
                         if (stop.address.latitude && stop.address.longitude) {
@@ -1429,6 +1450,7 @@ export function RouteDetailPage() {
                             <X className="w-4 h-4 text-red-500" />
                           )}
                           <div className="flex flex-col items-end">
+                            {/* ETA actual/recalculada */}
                             <span className={`text-sm font-medium ${
                               timeWindowStatus === 'late'
                                 ? 'text-red-600'
@@ -1442,6 +1464,12 @@ export function RouteDetailPage() {
                             }`}>
                               {formattedTime}
                             </span>
+                            {/* ETA original (planificada al iniciar ruta) */}
+                            {originalArrival && !simulatedDepartureTime && (
+                              <span className="text-xs text-gray-400" title="Hora planificada al iniciar ruta">
+                                Plan: {originalArrival.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                              </span>
+                            )}
                             {/* Indicador de retraso/adelanto */}
                             {isDelayed && (
                               <span className="text-xs text-orange-500 flex items-center gap-0.5" title={`Retraso de ${delayMinutes} minutos vs ETA original`}>

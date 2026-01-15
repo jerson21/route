@@ -128,9 +128,6 @@ export function StopDetailPanel({ routeId, stopId, stopIndex, onClose, onUpdate,
       const stopData = response.data.data;
       setStop(stopData);
 
-      // DEBUG: Log stop status to verify it's uppercase
-      console.log('Stop loaded:', { id: stopData.id, status: stopData.status, photoUrl: stopData.photoUrl });
-
       // Update form data
       setFormData({
         stopType: stopData.stopType || 'DELIVERY',
