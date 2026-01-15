@@ -2306,6 +2306,8 @@ const importStopSchema = z.object({
   address: z.object({
     fullAddress: z.string().min(5, 'Dirección requerida'),
     unit: z.string().optional(), // Depto, Of., Casa, etc.
+    latitude: z.number().optional(), // Si ya tienes coordenadas, envíalas para evitar geocoding
+    longitude: z.number().optional(),
   }),
   customer: z.object({
     name: z.string().optional(),
@@ -2389,17 +2391,30 @@ router.post('/import', requireRole('ADMIN', 'OPERATOR'), async (req: Request, re
         let geocodeError: string | undefined;
 
         if (!address) {
-          // Geocode the address
-          const geocodeResult = await geocodeAddress(stopData.address.fullAddress);
-
-          geocodeSuccess = geocodeResult.success;
-          geocodeError = geocodeResult.error;
-
           // Parse address parts from fullAddress (format: "Street, City, Region" or similar)
           const addressParts = stopData.address.fullAddress.split(',').map(p => p.trim());
           const street = addressParts[0] || stopData.address.fullAddress;
           const city = addressParts[1] || 'Santiago'; // Default to Santiago if not provided
           const state = addressParts[2] || null;
+
+          let latitude: number | null = null;
+          let longitude: number | null = null;
+
+          // Check if coordinates were provided - skip geocoding if so
+          if (stopData.address.latitude && stopData.address.longitude) {
+            latitude = stopData.address.latitude;
+            longitude = stopData.address.longitude;
+            geocodeSuccess = true;
+            console.log(`[IMPORT] Using provided coordinates: ${latitude}, ${longitude}`);
+          } else {
+            // Geocode the address
+            const geocodeResult = await geocodeAddress(stopData.address.fullAddress);
+            geocodeSuccess = geocodeResult.success;
+            geocodeError = geocodeResult.error;
+            latitude = geocodeResult.latitude || null;
+            longitude = geocodeResult.longitude || null;
+            console.log(`[IMPORT] Geocoded address: ${geocodeSuccess ? 'success' : 'failed'}`);
+          }
 
           // Create address regardless of geocode result
           address = await prisma.address.create({
@@ -2410,16 +2425,16 @@ router.post('/import', requireRole('ADMIN', 'OPERATOR'), async (req: Request, re
               country: 'Chile',
               fullAddress: stopData.address.fullAddress,
               unit: stopData.address.unit,
-              latitude: geocodeResult.latitude || null,
-              longitude: geocodeResult.longitude || null,
-              geocodeStatus: geocodeResult.success ? 'SUCCESS' : 'FAILED',
+              latitude,
+              longitude,
+              geocodeStatus: geocodeSuccess ? 'SUCCESS' : 'FAILED',
               customerName: stopData.customer?.name,
               customerPhone: stopData.customer?.phone,
               createdById: req.user!.id,
             }
           });
 
-          console.log(`[IMPORT] Address created: ${address.id} (geocode: ${geocodeSuccess})`);
+          console.log(`[IMPORT] Address created: ${address.id}`);
         } else {
           // Update address with customer info if provided
           if (stopData.customer?.name || stopData.customer?.phone || stopData.address.unit) {

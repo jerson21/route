@@ -31,7 +31,9 @@ Authorization: Bearer <tu_token>
     {
       "address": {
         "fullAddress": "Av. Providencia 1234, Providencia, Santiago",
-        "unit": "Depto 501"
+        "unit": "Depto 501",
+        "latitude": -33.4256,
+        "longitude": -70.6097
       },
       "customer": {
         "name": "Juan Pérez",
@@ -78,8 +80,10 @@ Authorization: Bearer <tu_token>
 
 | Campo | Tipo | Requerido | Descripción |
 |-------|------|-----------|-------------|
-| `fullAddress` | string | ✅ | Dirección completa (se geocodifica automáticamente) |
+| `fullAddress` | string | ✅ | Dirección completa (se geocodifica automáticamente si no se envían coordenadas) |
 | `unit` | string | ❌ | Depto, Of., Casa, Local, etc. |
+| `latitude` | number | ❌ | Latitud (si se envía junto con longitude, se omite el geocoding) |
+| `longitude` | number | ❌ | Longitud (si se envía junto con latitude, se omite el geocoding) |
 
 #### customer (opcional)
 
@@ -342,13 +346,15 @@ echo json_encode([
 
 1. **Geocoding**: Las direcciones se geocodifican automáticamente. Si falla el geocoding, la parada se crea igual pero `geocodeSuccess` será `false`.
 
-2. **Direcciones duplicadas**: Si una dirección ya existe en el sistema, se reutiliza (no se duplica).
+2. **Coordenadas opcionales**: Si ya tienes latitud y longitud en tu BD, envíalas en el campo `address` para evitar el geocoding. Esto acelera significativamente la importación y evita consumir cuota de Google Maps API.
 
-3. **orderId es clave**: El campo `orderId` es tu identificador único. Úsalo para mapear los `stopId` de vuelta a tu sistema.
+3. **Direcciones duplicadas**: Si una dirección ya existe en el sistema (por `fullAddress`), se reutiliza (no se duplica).
 
-4. **Timeout**: El endpoint puede tardar si hay muchas paradas (100ms por parada para geocoding). Usa timeout de 2+ minutos.
+4. **orderId es clave**: El campo `orderId` es tu identificador único. Úsalo para mapear los `stopId` de vuelta a tu sistema.
 
-5. **Estado inicial**: La ruta se crea en estado `DRAFT`. Luego puedes:
+5. **Timeout**: El endpoint puede tardar si hay muchas paradas (100ms por parada para geocoding). Si envías coordenadas, es casi instantáneo. Usa timeout de 2+ minutos para estar seguro.
+
+6. **Estado inicial**: La ruta se crea en estado `DRAFT`. Luego puedes:
    - Optimizarla: `POST /routes/{routeId}/optimize`
    - Asignar conductor: `POST /routes/{routeId}/assign`
    - Enviar al conductor: `POST /routes/{routeId}/send`
