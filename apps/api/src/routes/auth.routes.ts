@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import * as authService from '../services/auth.service.js';
+import * as notificationService from '../services/notification.service.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { AppError } from '../middleware/errorHandler.js';
 
@@ -78,6 +79,34 @@ router.get('/me', authenticate, async (req: Request, res: Response, next: NextFu
   try {
     const user = await authService.getCurrentUser(req.user!.id);
     res.json({ success: true, data: user });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /auth/fcm-token - Save FCM token for push notifications
+const fcmTokenSchema = z.object({
+  token: z.string().min(10, 'Token inválido')
+});
+
+router.post('/fcm-token', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { token } = fcmTokenSchema.parse(req.body);
+    await notificationService.saveFcmToken(req.user!.id, token);
+    res.json({ success: true, message: 'Token guardado' });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return next(new AppError(400, error.errors[0].message));
+    }
+    next(error);
+  }
+});
+
+// DELETE /auth/fcm-token - Remove FCM token (on logout from device)
+router.delete('/fcm-token', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await notificationService.removeFcmToken(req.user!.id);
+    res.json({ success: true, message: 'Token eliminado' });
   } catch (error) {
     next(error);
   }

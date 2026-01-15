@@ -17,6 +17,7 @@ import {
 } from '../services/webhookService.js';
 import { getWebhookConfig, getNotificationConfig } from './settings.routes.js';
 import { addRouteConnection, removeRouteConnection, broadcastToRoute, sendHeartbeat } from '../services/sse.service.js';
+import * as notificationService from '../services/notification.service.js';
 
 const router = Router();
 
@@ -406,10 +407,23 @@ router.post('/:id/stops', requireRole('ADMIN', 'OPERATOR'), async (req: Request,
             routeId: route.id,
             addressId,
             sequenceOrder: lastOrder + index + 1
-          }
+          },
+          include: { address: true }
         })
       )
     );
+
+    // Notify driver if route is active
+    if ((route.status === 'IN_PROGRESS' || route.status === 'SCHEDULED') && route.assignedToId && route.sentAt) {
+      const firstStop = stops[0];
+      const stopAddress = firstStop?.address?.fullAddress || 'Nueva dirección';
+      notificationService.notifyStopAdded(
+        route.assignedToId,
+        route.name,
+        route.id,
+        addressIds.length > 1 ? `${addressIds.length} paradas agregadas` : stopAddress
+      );
+    }
 
     res.status(201).json({ success: true, data: stops });
   } catch (error) {
@@ -535,6 +549,16 @@ router.post('/:id/send', requireRole('ADMIN', 'OPERATOR'), async (req: Request, 
       sentAt: updatedRoute.sentAt,
       assignedTo: updatedRoute.assignedTo
     });
+
+    // Send push notification to driver
+    if (updatedRoute.assignedTo) {
+      notificationService.notifyNewRoute(
+        updatedRoute.assignedTo.id,
+        updatedRoute.name,
+        updatedRoute.id,
+        updatedRoute._count.stops
+      );
+    }
 
     res.json({ success: true, data: updatedRoute });
   } catch (error) {
@@ -1047,6 +1071,15 @@ router.delete('/:id/stops/:stopId', requireRole('ADMIN', 'OPERATOR'), async (req
     await prisma.stop.delete({
       where: { id: stopId }
     });
+
+    // Notify driver if route is active
+    if ((route.status === 'IN_PROGRESS' || route.status === 'SCHEDULED') && route.assignedToId && route.sentAt) {
+      notificationService.notifyStopRemoved(
+        route.assignedToId,
+        route.name,
+        route.id
+      );
+    }
 
     res.json({ success: true, message: 'Parada eliminada' });
   } catch (error) {

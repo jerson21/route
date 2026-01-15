@@ -68,6 +68,9 @@ model User {
   // Driver preferences (JSON)
   preferences  Json?     @default("{}")
 
+  // Push notifications
+  fcmToken     String?   @map("fcm_token")
+
   // Relations
   createdRoutes    Route[]         @relation("CreatedRoutes")
   assignedRoutes   Route[]         @relation("AssignedRoutes")
