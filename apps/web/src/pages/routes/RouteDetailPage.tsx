@@ -365,23 +365,66 @@ export function RouteDetailPage() {
     return () => clearInterval(pollInterval);
   }, [route?.status, id]);
 
-  // Auto-refresh route data every 15 seconds when IN_PROGRESS (silent - no loading indicator)
-  // This allows seeing real-time status changes from the Android app
+  // SSE connection for real-time updates when route is IN_PROGRESS
   useEffect(() => {
     if (!route || route.status !== 'IN_PROGRESS') {
       return;
     }
 
-    const refreshInterval = setInterval(async () => {
-      try {
-        const response = await api.get(`/routes/${id}`);
-        setRoute(response.data.data);
-      } catch (err) {
-        console.debug('Silent refresh failed:', err);
-      }
-    }, 15000); // 15 seconds, silent
+    // Get auth token for SSE connection
+    const token = localStorage.getItem('accessToken');
+    if (!token) {
+      console.debug('[SSE] No auth token, falling back to polling');
+      return;
+    }
 
-    return () => clearInterval(refreshInterval);
+    // Note: EventSource doesn't support custom headers, so we use query param for auth
+    // This is a common pattern for SSE authentication
+    const eventSource = new EventSource(
+      `${import.meta.env.VITE_API_URL || '/api/v1'}/routes/${id}/events?token=${encodeURIComponent(token)}`
+    );
+
+    eventSource.onopen = () => {
+      console.log('[SSE] Connected to route events');
+    };
+
+    eventSource.onerror = (error) => {
+      console.debug('[SSE] Connection error, will auto-reconnect:', error);
+    };
+
+    // Handle specific events
+    eventSource.addEventListener('stop.in_transit', (event) => {
+      console.log('[SSE] Stop in transit:', event.data);
+      // Refresh route data to get latest state
+      fetchRoute();
+    });
+
+    eventSource.addEventListener('stop.status_changed', (event) => {
+      console.log('[SSE] Stop status changed:', event.data);
+      const data = JSON.parse(event.data);
+      // Update route directly if full route is provided, otherwise fetch
+      if (data.route) {
+        setRoute(data.route);
+      } else {
+        fetchRoute();
+      }
+    });
+
+    eventSource.addEventListener('route.completed', (event) => {
+      console.log('[SSE] Route completed:', event.data);
+      fetchRoute();
+      addToast('Ruta completada', 'success');
+    });
+
+    // Generic message handler for any other events
+    eventSource.onmessage = (event) => {
+      console.log('[SSE] Message:', event.data);
+    };
+
+    return () => {
+      console.log('[SSE] Closing connection');
+      eventSource.close();
+    };
   }, [route?.status, id]);
 
 

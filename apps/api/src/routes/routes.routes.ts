@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
+import jwt from 'jsonwebtoken';
 import { prisma } from '../config/database.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { requireRole } from '../middleware/rbac.middleware.js';
@@ -15,6 +16,7 @@ import {
   WebhookPayload,
 } from '../services/webhookService.js';
 import { getWebhookConfig, getNotificationConfig } from './settings.routes.js';
+import { addRouteConnection, removeRouteConnection, broadcastToRoute, sendHeartbeat } from '../services/sse.service.js';
 
 const router = Router();
 
@@ -245,6 +247,80 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     }
 
     res.json({ success: true, data: route });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /routes/:id/events - SSE endpoint for real-time updates
+// Note: This endpoint accepts token via query param because EventSource doesn't support custom headers
+router.get('/:id/events', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const routeId = req.params.id;
+
+    // For SSE, handle auth via query param since EventSource doesn't support headers
+    // First try to get user from authenticate middleware, then fallback to query param token
+    let user = req.user;
+
+    if (!user && req.query.token) {
+      try {
+        const token = req.query.token as string;
+        const payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET!) as { sub: string; role: string };
+        const dbUser = await prisma.user.findUnique({
+          where: { id: payload.sub },
+          select: { id: true, role: true, isActive: true }
+        });
+        if (dbUser && dbUser.isActive) {
+          user = { id: dbUser.id, email: '', role: dbUser.role as any };
+        }
+      } catch (e) {
+        throw new AppError(401, 'Token inválido');
+      }
+    }
+
+    if (!user) {
+      throw new AppError(401, 'Autenticación requerida');
+    }
+
+    // Verify route exists and user has access
+    const route = await prisma.route.findUnique({
+      where: { id: routeId },
+      select: { id: true, assignedToId: true, status: true }
+    });
+
+    if (!route) {
+      throw new AppError(404, 'Ruta no encontrada');
+    }
+
+    // Drivers can only watch their own routes
+    if (user.role === 'DRIVER' && route.assignedToId !== user.id) {
+      throw new AppError(403, 'No tienes acceso a esta ruta');
+    }
+
+    // Set SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+    res.flushHeaders();
+
+    // Send initial connection event
+    res.write(`event: connected\ndata: ${JSON.stringify({ routeId, status: route.status })}\n\n`);
+
+    // Add this connection to the route's listeners
+    addRouteConnection(routeId, res);
+
+    // Send heartbeat every 30 seconds to keep connection alive
+    const heartbeatInterval = setInterval(() => {
+      sendHeartbeat(routeId);
+    }, 30000);
+
+    // Clean up on client disconnect
+    req.on('close', () => {
+      clearInterval(heartbeatInterval);
+      removeRouteConnection(routeId, res);
+    });
+
   } catch (error) {
     next(error);
   }
@@ -1512,6 +1588,20 @@ router.post('/:id/stops/:stopId/complete', async (req: Request, res: Response, n
       }
     });
 
+    // Broadcast SSE event to web clients
+    broadcastToRoute(routeId, 'stop.status_changed', {
+      stop: updatedStop,
+      route: updatedRoute,
+      remainingStops
+    });
+
+    // If route completed, send route.completed event
+    if (remainingStops === 0) {
+      broadcastToRoute(routeId, 'route.completed', {
+        route: updatedRoute
+      });
+    }
+
     res.json({
       success: true,
       data: {
@@ -1545,6 +1635,11 @@ router.post('/:id/stops/:stopId/arrive', async (req: Request, res: Response, nex
         arrivedAt: new Date()
       },
       include: { address: true }
+    });
+
+    // Broadcast SSE event
+    broadcastToRoute(routeId, 'stop.status_changed', {
+      stop: updatedStop
     });
 
     res.json({ success: true, data: updatedStop });
@@ -1826,6 +1921,12 @@ router.post('/:id/stops/:stopId/in-transit', async (req: Request, res: Response,
         console.error('[IN-TRANSIT] Webhook error:', err);
       });
     }
+
+    // Broadcast SSE event to web clients watching this route
+    broadcastToRoute(routeId, 'stop.in_transit', {
+      stop: updatedStop,
+      remainingStops: remainingStops.length
+    });
 
     res.json({ success: true, data: updatedStop });
   } catch (error) {
