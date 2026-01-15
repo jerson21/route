@@ -358,3 +358,97 @@ echo json_encode([
    - Optimizarla: `POST /routes/{routeId}/optimize`
    - Asignar conductor: `POST /routes/{routeId}/assign`
    - Enviar al conductor: `POST /routes/{routeId}/send`
+
+---
+
+## Obtener Orden Optimizado
+
+Después de optimizar la ruta, puedes obtener el orden final para sincronizar con tu base de datos:
+
+```
+GET /api/v1/routes/{routeId}/optimized-order
+Authorization: Bearer <tu_token>
+```
+
+### Response
+
+```json
+{
+  "success": true,
+  "data": {
+    "routeId": "550e8400-e29b-41d4-a716-446655440000",
+    "routeName": "Ruta 123 - 2024-01-15",
+    "status": "DRAFT",
+    "totalStops": 5,
+    "stops": [
+      {
+        "position": 1,
+        "orderId": "ORD-12345",
+        "stopId": "660e8400-e29b-41d4-a716-446655440001",
+        "sequenceOrder": 1,
+        "status": "PENDING",
+        "address": "Av. Providencia 1234, Santiago",
+        "customerName": "Juan Pérez",
+        "eta": "2024-01-15T09:30:00Z"
+      },
+      {
+        "position": 2,
+        "orderId": "ORD-67890",
+        "stopId": "660e8400-e29b-41d4-a716-446655440002",
+        "sequenceOrder": 2,
+        "status": "PENDING",
+        "address": "Las Condes 567, Santiago",
+        "customerName": "María López",
+        "eta": "2024-01-15T10:15:00Z"
+      }
+    ]
+  }
+}
+```
+
+### Ejemplo PHP para Sincronizar Orden
+
+```php
+<?php
+// Después de importar y optimizar, obtener el nuevo orden
+$curl = curl_init();
+curl_setopt_array($curl, [
+    CURLOPT_URL => $apiUrl . '/routes/' . $routeOptimizerId . '/optimized-order',
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_HTTPHEADER => [
+        'Authorization: Bearer ' . $token
+    ],
+]);
+
+$response = curl_exec($curl);
+curl_close($curl);
+
+$result = json_decode($response, true);
+
+if ($result['success']) {
+    foreach ($result['data']['stops'] as $stop) {
+        $orderId = $stop['orderId'];
+        $position = $stop['position'];
+
+        // Actualizar tu base de datos con el nuevo orden
+        if (strpos($orderId, 'AGENCIA-') === 0) {
+            // Es una agencia
+            $agenciaCodigo = str_replace('AGENCIA-', '', $orderId);
+            $updateStmt = $conexion->prepare("
+                UPDATE pedido_detalle
+                SET orden_ruta = ?
+                WHERE agencia_envio = ? AND ruta_asignada = ?
+            ");
+            $updateStmt->execute([$position, $agenciaCodigo, $routeId]);
+        } else {
+            // Es un domicilio (num_orden)
+            $updateStmt = $conexion->prepare("
+                UPDATE pedido_detalle
+                SET orden_ruta = ?
+                WHERE num_orden = ? AND ruta_asignada = ?
+            ");
+            $updateStmt->execute([$position, $orderId, $routeId]);
+        }
+    }
+}
+```

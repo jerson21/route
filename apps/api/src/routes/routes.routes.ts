@@ -2567,4 +2567,62 @@ router.post('/import', requireRole('ADMIN', 'OPERATOR'), async (req: Request, re
   }
 });
 
+// ============================================================================
+// GET /routes/:id/optimized-order - Get optimized stop order for external sync
+// ============================================================================
+
+router.get('/:id/optimized-order', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id } = req.params;
+
+    const route = await prisma.route.findUnique({
+      where: { id },
+      include: {
+        stops: {
+          orderBy: { sequenceOrder: 'asc' },
+          include: {
+            address: {
+              select: {
+                fullAddress: true,
+                latitude: true,
+                longitude: true,
+              }
+            }
+          }
+        }
+      }
+    });
+
+    if (!route) {
+      throw new AppError(404, 'Ruta no encontrada');
+    }
+
+    // Build response with order mapping
+    const stopsOrder = route.stops.map((stop, index) => ({
+      position: index + 1,
+      orderId: stop.externalId, // This is the orderId from import
+      stopId: stop.id,
+      sequenceOrder: stop.sequenceOrder,
+      status: stop.status,
+      address: stop.address?.fullAddress,
+      customerName: stop.recipientName || stop.clientName,
+      eta: stop.estimatedArrival,
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        routeId: route.id,
+        routeName: route.name,
+        status: route.status,
+        totalStops: stopsOrder.length,
+        stops: stopsOrder
+      }
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
+
 export { router as routeRoutes };
