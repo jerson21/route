@@ -3,7 +3,7 @@ import {
   X, MapPin, Clock, User, Phone, Mail, Package, Barcode,
   FileText, CheckSquare, Camera, PenTool, Save, Loader2,
   Truck, ArrowDownToLine, Settings2, Timer, CheckCircle2, XCircle, SkipForward,
-  Image, ZoomIn, CreditCard, DollarSign
+  Image, ZoomIn, DollarSign
 } from 'lucide-react';
 import { api } from '../../services/api';
 
