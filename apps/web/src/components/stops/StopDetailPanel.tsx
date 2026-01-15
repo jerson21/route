@@ -2,7 +2,8 @@ import { useState, useEffect } from 'react';
 import {
   X, MapPin, Clock, User, Phone, Mail, Package, Barcode,
   FileText, CheckSquare, Camera, PenTool, Save, Loader2,
-  Truck, ArrowDownToLine, Settings2, Timer, CheckCircle2, XCircle, SkipForward
+  Truck, ArrowDownToLine, Settings2, Timer, CheckCircle2, XCircle, SkipForward,
+  Image, ZoomIn, CreditCard, DollarSign
 } from 'lucide-react';
 import { api } from '../../services/api';
 
@@ -38,6 +39,20 @@ interface StopDetail {
   sellerName?: string;
   orderNotes?: string;
   notes?: string;
+  // Evidence fields
+  photoUrl?: string;
+  signatureUrl?: string;
+  failureReason?: string;
+  completedAt?: string;
+  arrivedAt?: string;
+  // Payment fields
+  isPaid?: boolean;
+  paymentStatus?: string;
+  paymentMethod?: string;
+  paymentAmount?: number;
+  collectionAmount?: number;
+  paymentNotes?: string;
+  paidAt?: string;
   address: {
     id: string;
     fullAddress: string;
@@ -61,8 +76,12 @@ export function StopDetailPanel({ routeId, stopId, stopIndex, onClose, onUpdate,
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'config' | 'recipient' | 'order'>('config');
+  const [activeTab, setActiveTab] = useState<'config' | 'recipient' | 'order' | 'evidence'>('config');
   const [completing, setCompleting] = useState<'complete' | 'fail' | 'skip' | null>(null);
+  const [imageModal, setImageModal] = useState<{ url: string; title: string } | null>(null);
+
+  // R2 public URL for photos
+  const R2_PUBLIC_URL = 'https://pub-4b62daba31aa43b392c7937bb84bc325.r2.dev';
 
   // Form state
   const [formData, setFormData] = useState({
@@ -300,6 +319,19 @@ export function StopDetailPanel({ routeId, stopId, stopIndex, onClose, onUpdate,
           >
             Pedido
           </button>
+          {/* Evidence tab - show for completed/failed/skipped stops */}
+          {['COMPLETED', 'FAILED', 'SKIPPED'].includes(stop.status) && (
+            <button
+              onClick={() => setActiveTab('evidence')}
+              className={`flex-1 px-4 py-3 text-sm font-medium ${
+                activeTab === 'evidence'
+                  ? 'text-blue-600 border-b-2 border-blue-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Evidencia
+            </button>
+          )}
         </div>
 
         {/* Content */}
@@ -619,6 +651,168 @@ export function StopDetailPanel({ routeId, stopId, stopIndex, onClose, onUpdate,
               </div>
             </div>
           )}
+
+          {/* Evidence Tab */}
+          {activeTab === 'evidence' && (
+            <div className="p-6 space-y-6">
+              {/* Completion Status */}
+              <div className="bg-gray-50 rounded-lg p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  {stop.status === 'COMPLETED' && <CheckCircle2 className="w-6 h-6 text-green-600" />}
+                  {stop.status === 'FAILED' && <XCircle className="w-6 h-6 text-red-600" />}
+                  {stop.status === 'SKIPPED' && <SkipForward className="w-6 h-6 text-yellow-600" />}
+                  <div>
+                    <p className="font-medium text-gray-900">
+                      {stop.status === 'COMPLETED' && 'Entrega completada'}
+                      {stop.status === 'FAILED' && 'Entrega fallida'}
+                      {stop.status === 'SKIPPED' && 'Entrega omitida'}
+                    </p>
+                    {stop.completedAt && (
+                      <p className="text-sm text-gray-500">
+                        {new Date(stop.completedAt).toLocaleString('es-CL', {
+                          dateStyle: 'medium',
+                          timeStyle: 'short'
+                        })}
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Failure reason */}
+                {stop.status === 'FAILED' && stop.failureReason && (
+                  <div className="mt-3 p-3 bg-red-50 rounded-lg">
+                    <p className="text-sm font-medium text-red-800">Motivo de falla:</p>
+                    <p className="text-sm text-red-700">{stop.failureReason}</p>
+                  </div>
+                )}
+
+                {/* Notes */}
+                {stop.notes && (
+                  <div className="mt-3 p-3 bg-blue-50 rounded-lg">
+                    <p className="text-sm font-medium text-blue-800">Notas:</p>
+                    <p className="text-sm text-blue-700">{stop.notes}</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Photo Evidence */}
+              <div>
+                <h4 className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-3">
+                  <Camera className="w-4 h-4" />
+                  Foto de entrega
+                </h4>
+                {stop.photoUrl ? (
+                  <div
+                    className="relative group cursor-pointer rounded-lg overflow-hidden border border-gray-200"
+                    onClick={() => setImageModal({
+                      url: stop.photoUrl!.startsWith('http') ? stop.photoUrl! : `${R2_PUBLIC_URL}/${stop.photoUrl}`,
+                      title: 'Foto de entrega'
+                    })}
+                  >
+                    <img
+                      src={stop.photoUrl.startsWith('http') ? stop.photoUrl : `${R2_PUBLIC_URL}/${stop.photoUrl}`}
+                      alt="Foto de entrega"
+                      className="w-full h-48 object-cover"
+                    />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-all flex items-center justify-center">
+                      <ZoomIn className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-8 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+                    <Image className="w-10 h-10 text-gray-300 mb-2" />
+                    <p className="text-sm text-gray-500">Sin foto de entrega</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Signature Evidence */}
+              <div>
+                <h4 className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-3">
+                  <PenTool className="w-4 h-4" />
+                  Firma
+                </h4>
+                {stop.signatureUrl ? (
+                  <div
+                    className="relative group cursor-pointer rounded-lg overflow-hidden border border-gray-200 bg-white"
+                    onClick={() => setImageModal({
+                      url: stop.signatureUrl!.startsWith('http') ? stop.signatureUrl! : `${R2_PUBLIC_URL}/${stop.signatureUrl}`,
+                      title: 'Firma del destinatario'
+                    })}
+                  >
+                    <img
+                      src={stop.signatureUrl.startsWith('http') ? stop.signatureUrl : `${R2_PUBLIC_URL}/${stop.signatureUrl}`}
+                      alt="Firma"
+                      className="w-full h-32 object-contain p-4"
+                    />
+                    <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-all flex items-center justify-center">
+                      <ZoomIn className="w-8 h-8 text-gray-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-8 bg-gray-50 rounded-lg border border-dashed border-gray-300">
+                    <PenTool className="w-10 h-10 text-gray-300 mb-2" />
+                    <p className="text-sm text-gray-500">Sin firma</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Payment Info */}
+              {(stop.isPaid || stop.paymentAmount) && (
+                <div>
+                  <h4 className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-3">
+                    <DollarSign className="w-4 h-4" />
+                    Informacion de pago
+                  </h4>
+                  <div className="bg-gray-50 rounded-lg p-4 space-y-2">
+                    {stop.paymentAmount && (
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600">Monto esperado:</span>
+                        <span className="text-sm font-medium">${stop.paymentAmount.toLocaleString('es-CL')}</span>
+                      </div>
+                    )}
+                    {stop.collectionAmount && (
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600">Monto cobrado:</span>
+                        <span className="text-sm font-medium text-green-600">${stop.collectionAmount.toLocaleString('es-CL')}</span>
+                      </div>
+                    )}
+                    {stop.paymentMethod && (
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600">Metodo:</span>
+                        <span className="text-sm font-medium">
+                          {stop.paymentMethod === 'CASH' && 'Efectivo'}
+                          {stop.paymentMethod === 'CARD' && 'Tarjeta'}
+                          {stop.paymentMethod === 'TRANSFER' && 'Transferencia'}
+                          {stop.paymentMethod === 'ONLINE' && 'Pago online'}
+                        </span>
+                      </div>
+                    )}
+                    {stop.paymentStatus && (
+                      <div className="flex justify-between">
+                        <span className="text-sm text-gray-600">Estado:</span>
+                        <span className={`text-sm font-medium ${
+                          stop.paymentStatus === 'PAID' ? 'text-green-600' :
+                          stop.paymentStatus === 'PARTIAL' ? 'text-yellow-600' :
+                          'text-gray-600'
+                        }`}>
+                          {stop.paymentStatus === 'PAID' && 'Pagado'}
+                          {stop.paymentStatus === 'PARTIAL' && 'Pago parcial'}
+                          {stop.paymentStatus === 'PENDING' && 'Pendiente'}
+                          {stop.paymentStatus === 'CANCELLED' && 'Cancelado'}
+                        </span>
+                      </div>
+                    )}
+                    {stop.paymentNotes && (
+                      <div className="pt-2 border-t border-gray-200">
+                        <p className="text-sm text-gray-600">Notas: {stop.paymentNotes}</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Footer */}
@@ -690,6 +884,30 @@ export function StopDetailPanel({ routeId, stopId, stopIndex, onClose, onUpdate,
           )}
         </div>
       </div>
+
+      {/* Image Modal */}
+      {imageModal && (
+        <div
+          className="fixed inset-0 bg-black/90 flex items-center justify-center z-[60]"
+          onClick={() => setImageModal(null)}
+        >
+          <div className="relative max-w-4xl max-h-[90vh] w-full mx-4">
+            <button
+              onClick={() => setImageModal(null)}
+              className="absolute -top-10 right-0 text-white hover:text-gray-300 transition-colors"
+            >
+              <X className="w-8 h-8" />
+            </button>
+            <p className="text-white text-center mb-4 font-medium">{imageModal.title}</p>
+            <img
+              src={imageModal.url}
+              alt={imageModal.title}
+              className="w-full h-auto max-h-[80vh] object-contain rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
