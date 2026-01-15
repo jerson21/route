@@ -489,7 +489,7 @@ router.post('/:id/load', async (req: Request, res: Response, next: NextFunction)
 });
 
 // POST /routes/:id/send - Enviar ruta al conductor (hacerla visible en la app)
-router.post('/:id/send', requireRole(['ADMIN', 'OPERATOR']), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/send', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const route = await prisma.route.findUnique({
       where: { id: req.params.id },
@@ -512,9 +512,7 @@ router.post('/:id/send', requireRole(['ADMIN', 'OPERATOR']), async (req: Request
     }
 
     if (route.sentAt) {
-      throw new AppError(409, 'La ruta ya fue enviada al conductor', {
-        sentAt: route.sentAt
-      });
+      throw new AppError(409, 'La ruta ya fue enviada al conductor');
     }
 
     // Cambiar estado a SCHEDULED y marcar como enviada
@@ -545,7 +543,7 @@ router.post('/:id/send', requireRole(['ADMIN', 'OPERATOR']), async (req: Request
 });
 
 // POST /routes/:id/unsend - Retirar ruta del conductor (antes de que inicie)
-router.post('/:id/unsend', requireRole(['ADMIN', 'OPERATOR']), async (req: Request, res: Response, next: NextFunction) => {
+router.post('/:id/unsend', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const route = await prisma.route.findUnique({
       where: { id: req.params.id }

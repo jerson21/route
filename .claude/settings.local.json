@@ -10,7 +10,8 @@
       "Bash(docker logs:*)",
       "Bash(pnpm --filter api exec prisma migrate dev:*)",
       "Bash(pnpm --filter api exec prisma generate --schema ../../prisma/schema.prisma)",
-      "Bash(pnpm add:*)"
+      "Bash(pnpm add:*)",
+      "Bash(git push:*)"
     ]
   }
 }
