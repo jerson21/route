@@ -1282,6 +1282,12 @@ router.post('/:id/optimize', requireRole('ADMIN', 'OPERATOR'), async (req: Reque
         let startTime: Date;
         if (driverStartTime) {
           startTime = new Date(driverStartTime);
+        } else if (route.status === 'IN_PROGRESS') {
+          // For active routes, use actual start time or current time
+          startTime = route.actualStartTime
+            ? new Date(route.actualStartTime)
+            : (route.startedAt ? new Date(route.startedAt) : new Date());
+          console.log(`[OPTIMIZE] Route IN_PROGRESS - using start time: ${startTime.toISOString()}`);
         } else {
           scheduledDate.setHours(depotHours, depotMinutes, 0, 0);
           startTime = new Date(scheduledDate);
@@ -1355,9 +1361,18 @@ router.post('/:id/optimize', requireRole('ADMIN', 'OPERATOR'), async (req: Reque
         const scheduledDate = route.scheduledDate ? new Date(route.scheduledDate) : new Date();
         scheduledDate.setHours(depotHours, depotMinutes, 0, 0);
 
-        const departureTime = driverStartTime
-          ? new Date(driverStartTime)
-          : scheduledDate;
+        let departureTime: Date;
+        if (driverStartTime) {
+          departureTime = new Date(driverStartTime);
+        } else if (route.status === 'IN_PROGRESS') {
+          // For active routes, use actual start time or current time
+          departureTime = route.actualStartTime
+            ? new Date(route.actualStartTime)
+            : (route.startedAt ? new Date(route.startedAt) : new Date());
+          console.log(`[OPTIMIZE] Route IN_PROGRESS (2-opt) - using start time: ${departureTime.toISOString()}`);
+        } else {
+          departureTime = scheduledDate;
+        }
 
         // Get default service minutes from depot
         const defaultServiceMinutes = route.depot?.defaultServiceMinutes || 15;
