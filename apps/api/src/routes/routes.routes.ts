@@ -20,6 +20,84 @@ import { addRouteConnection, removeRouteConnection, broadcastToRoute, sendHeartb
 
 const router = Router();
 
+// GET /routes/:id/events - SSE endpoint for real-time updates
+// IMPORTANT: This must be BEFORE router.use(authenticate) because EventSource doesn't support headers
+// Token is passed via query param instead
+router.get('/:id/events', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const routeId = req.params.id;
+
+    // Handle auth via query param since EventSource doesn't support headers
+    let user: { id: string; email: string; role: string } | null = null;
+
+    if (req.query.token) {
+      try {
+        const token = req.query.token as string;
+        const payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET!) as { sub: string; role: string };
+        const dbUser = await prisma.user.findUnique({
+          where: { id: payload.sub },
+          select: { id: true, role: true, isActive: true }
+        });
+        if (dbUser && dbUser.isActive) {
+          user = { id: dbUser.id, email: '', role: dbUser.role };
+        }
+      } catch (e) {
+        res.status(401).json({ error: 'Token inválido' });
+        return;
+      }
+    }
+
+    if (!user) {
+      res.status(401).json({ error: 'Token requerido' });
+      return;
+    }
+
+    // Verify route exists and user has access
+    const route = await prisma.route.findUnique({
+      where: { id: routeId },
+      select: { id: true, assignedToId: true, status: true }
+    });
+
+    if (!route) {
+      res.status(404).json({ error: 'Ruta no encontrada' });
+      return;
+    }
+
+    // Drivers can only watch their own routes
+    if (user.role === 'DRIVER' && route.assignedToId !== user.id) {
+      res.status(403).json({ error: 'No tienes acceso a esta ruta' });
+      return;
+    }
+
+    // Set SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    // Send initial connection event
+    res.write(`event: connected\ndata: ${JSON.stringify({ routeId, status: route.status })}\n\n`);
+
+    // Add this connection to the route's listeners
+    addRouteConnection(routeId, res);
+
+    // Send heartbeat every 30 seconds to keep connection alive
+    const heartbeatInterval = setInterval(() => {
+      sendHeartbeat(routeId);
+    }, 30000);
+
+    // Clean up on client disconnect
+    req.on('close', () => {
+      clearInterval(heartbeatInterval);
+      removeRouteConnection(routeId, res);
+    });
+
+  } catch (error) {
+    next(error);
+  }
+});
+
 router.use(authenticate);
 
 const createRouteSchema = z.object({
@@ -247,80 +325,6 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
     }
 
     res.json({ success: true, data: route });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// GET /routes/:id/events - SSE endpoint for real-time updates
-// Note: This endpoint accepts token via query param because EventSource doesn't support custom headers
-router.get('/:id/events', async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const routeId = req.params.id;
-
-    // For SSE, handle auth via query param since EventSource doesn't support headers
-    // First try to get user from authenticate middleware, then fallback to query param token
-    let user = req.user;
-
-    if (!user && req.query.token) {
-      try {
-        const token = req.query.token as string;
-        const payload = jwt.verify(token, process.env.JWT_ACCESS_SECRET!) as { sub: string; role: string };
-        const dbUser = await prisma.user.findUnique({
-          where: { id: payload.sub },
-          select: { id: true, role: true, isActive: true }
-        });
-        if (dbUser && dbUser.isActive) {
-          user = { id: dbUser.id, email: '', role: dbUser.role as any };
-        }
-      } catch (e) {
-        throw new AppError(401, 'Token inválido');
-      }
-    }
-
-    if (!user) {
-      throw new AppError(401, 'Autenticación requerida');
-    }
-
-    // Verify route exists and user has access
-    const route = await prisma.route.findUnique({
-      where: { id: routeId },
-      select: { id: true, assignedToId: true, status: true }
-    });
-
-    if (!route) {
-      throw new AppError(404, 'Ruta no encontrada');
-    }
-
-    // Drivers can only watch their own routes
-    if (user.role === 'DRIVER' && route.assignedToId !== user.id) {
-      throw new AppError(403, 'No tienes acceso a esta ruta');
-    }
-
-    // Set SSE headers
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
-    res.flushHeaders();
-
-    // Send initial connection event
-    res.write(`event: connected\ndata: ${JSON.stringify({ routeId, status: route.status })}\n\n`);
-
-    // Add this connection to the route's listeners
-    addRouteConnection(routeId, res);
-
-    // Send heartbeat every 30 seconds to keep connection alive
-    const heartbeatInterval = setInterval(() => {
-      sendHeartbeat(routeId);
-    }, 30000);
-
-    // Clean up on client disconnect
-    req.on('close', () => {
-      clearInterval(heartbeatInterval);
-      removeRouteConnection(routeId, res);
-    });
-
   } catch (error) {
     next(error);
   }
