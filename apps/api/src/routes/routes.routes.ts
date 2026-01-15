@@ -121,9 +121,10 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
 
     const where: any = {};
 
-    // Drivers can only see their own routes
+    // Drivers can only see their own routes that have been sent to them
     if (req.user!.role === 'DRIVER') {
       where.assignedToId = req.user!.id;
+      where.sentAt = { not: null }; // Solo rutas enviadas
     } else if (driverId) {
       where.assignedToId = driverId;
     }
@@ -177,11 +178,12 @@ router.get('/', async (req: Request, res: Response, next: NextFunction) => {
 // GET /routes/active - Obtener la ruta activa del conductor autenticado
 router.get('/active', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    // Buscar ruta activa (IN_PROGRESS o PAUSED) del usuario
+    // Buscar ruta activa (IN_PROGRESS o PAUSED) del usuario que haya sido enviada
     const activeRoute = await prisma.route.findFirst({
       where: {
         assignedToId: req.user!.id,
-        status: { in: ['IN_PROGRESS', 'PAUSED'] }
+        status: { in: ['IN_PROGRESS', 'PAUSED'] },
+        sentAt: { not: null } // Solo rutas enviadas
       },
       include: {
         depot: { select: { id: true, name: true, address: true, latitude: true, longitude: true } },
@@ -222,20 +224,22 @@ router.get('/driver-dashboard', async (req: Request, res: Response, next: NextFu
       _count: { select: { stops: true } }
     };
 
-    // Buscar ruta activa (IN_PROGRESS o PAUSED)
+    // Buscar ruta activa (IN_PROGRESS o PAUSED) que haya sido enviada
     const activeRoute = await prisma.route.findFirst({
       where: {
         assignedToId: userId,
-        status: { in: ['IN_PROGRESS', 'PAUSED'] }
+        status: { in: ['IN_PROGRESS', 'PAUSED'] },
+        sentAt: { not: null } // Solo rutas enviadas
       },
       include: routeInclude
     });
 
-    // Rutas de hoy (SCHEDULED o DRAFT) - excluyendo la activa si existe
+    // Rutas de hoy (SCHEDULED) que han sido enviadas - excluyendo la activa si existe
     const todayRoutes = await prisma.route.findMany({
       where: {
         assignedToId: userId,
-        status: { in: ['SCHEDULED', 'DRAFT'] },
+        status: 'SCHEDULED', // Solo SCHEDULED (ya enviadas y optimizadas)
+        sentAt: { not: null }, // Solo rutas enviadas
         scheduledDate: {
           gte: today,
           lt: tomorrow
@@ -246,11 +250,12 @@ router.get('/driver-dashboard', async (req: Request, res: Response, next: NextFu
       orderBy: { scheduledDate: 'asc' }
     });
 
-    // Rutas próximas (futuras, no hoy)
+    // Rutas próximas (futuras, no hoy) que han sido enviadas
     const upcomingRoutes = await prisma.route.findMany({
       where: {
         assignedToId: userId,
-        status: { in: ['SCHEDULED', 'DRAFT'] },
+        status: 'SCHEDULED', // Solo SCHEDULED (ya enviadas)
+        sentAt: { not: null }, // Solo rutas enviadas
         scheduledDate: {
           gte: tomorrow
         }
@@ -483,6 +488,95 @@ router.post('/:id/load', async (req: Request, res: Response, next: NextFunction)
   }
 });
 
+// POST /routes/:id/send - Enviar ruta al conductor (hacerla visible en la app)
+router.post('/:id/send', requireRole(['ADMIN', 'OPERATOR']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const route = await prisma.route.findUnique({
+      where: { id: req.params.id },
+      include: {
+        assignedTo: { select: { id: true, firstName: true, lastName: true } }
+      }
+    });
+
+    if (!route) {
+      throw new AppError(404, 'Ruta no encontrada');
+    }
+
+    // Validaciones
+    if (!route.optimizedAt) {
+      throw new AppError(400, 'La ruta debe estar optimizada antes de enviarla al conductor');
+    }
+
+    if (!route.assignedToId) {
+      throw new AppError(400, 'La ruta debe tener un conductor asignado');
+    }
+
+    if (route.sentAt) {
+      throw new AppError(409, 'La ruta ya fue enviada al conductor', {
+        sentAt: route.sentAt
+      });
+    }
+
+    // Cambiar estado a SCHEDULED y marcar como enviada
+    const updatedRoute = await prisma.route.update({
+      where: { id: req.params.id },
+      data: {
+        status: 'SCHEDULED',
+        sentAt: new Date()
+      },
+      include: {
+        assignedTo: { select: { id: true, firstName: true, lastName: true } },
+        depot: { select: { id: true, name: true } },
+        _count: { select: { stops: true } }
+      }
+    });
+
+    // Broadcast SSE event
+    broadcastToRoute(req.params.id, 'route.sent', {
+      routeId: updatedRoute.id,
+      sentAt: updatedRoute.sentAt,
+      assignedTo: updatedRoute.assignedTo
+    });
+
+    res.json({ success: true, data: updatedRoute });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /routes/:id/unsend - Retirar ruta del conductor (antes de que inicie)
+router.post('/:id/unsend', requireRole(['ADMIN', 'OPERATOR']), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const route = await prisma.route.findUnique({
+      where: { id: req.params.id }
+    });
+
+    if (!route) {
+      throw new AppError(404, 'Ruta no encontrada');
+    }
+
+    if (!route.sentAt) {
+      throw new AppError(400, 'La ruta no ha sido enviada');
+    }
+
+    if (route.status === 'IN_PROGRESS' || route.status === 'COMPLETED') {
+      throw new AppError(400, 'No se puede retirar una ruta que ya está en progreso o completada');
+    }
+
+    const updatedRoute = await prisma.route.update({
+      where: { id: req.params.id },
+      data: {
+        sentAt: null,
+        status: 'DRAFT' // Volver a borrador
+      }
+    });
+
+    res.json({ success: true, data: updatedRoute });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // POST /routes/:id/start - Iniciar ruta (congela ETAs originales y notifica a todos los clientes)
 router.post('/:id/start', async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -537,15 +631,28 @@ router.post('/:id/start', async (req: Request, res: Response, next: NextFunction
 
     const now = new Date();
 
-    // Congelar ETAs originales para cada parada (copiar estimatedArrival a originalEstimatedArrival)
-    const stopsWithETA = route.stops.filter(s => s.estimatedArrival);
-    for (const stop of stopsWithETA) {
+    // RECALCULAR ETAs basándose en la hora REAL de inicio (now), no en la hora planificada
+    // Esto es crucial para que las comparaciones "A tiempo / +X min tarde" sean precisas
+    const stopsOrdered = route.stops.sort((a, b) => a.sequenceOrder - b.sequenceOrder);
+    let currentTime = now; // La hora real de inicio es el punto de partida
+
+    for (const stop of stopsOrdered) {
+      // Agregar tiempo de viaje desde la parada anterior (o desde el depot)
+      const travelMinutes = stop.travelMinutesFromPrevious || 0;
+      const arrivalTime = new Date(currentTime.getTime() + travelMinutes * 60 * 1000);
+
+      // Guardar la ETA calculada basándose en la hora real de inicio
       await prisma.stop.update({
         where: { id: stop.id },
         data: {
-          originalEstimatedArrival: stop.estimatedArrival
+          estimatedArrival: arrivalTime,
+          originalEstimatedArrival: arrivalTime // Congelar ETA real para comparaciones
         }
       });
+
+      // Para la siguiente parada, agregar el tiempo de servicio
+      const serviceMinutes = stop.estimatedMinutes || 15;
+      currentTime = new Date(arrivalTime.getTime() + serviceMinutes * 60 * 1000);
     }
 
     // Actualizar ruta a IN_PROGRESS

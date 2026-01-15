@@ -125,6 +125,7 @@ model Route {
   depotReturnTime  DateTime?   @map("depot_return_time") // Estimated arrival back at depot
 
   // Driver workflow timestamps
+  sentAt          DateTime? @map("sent_at") // When route was sent to driver (visible in app)
   loadedAt        DateTime? @map("loaded_at") // When truck was loaded
   actualStartTime DateTime? @map("actual_start_time") // Real start time (vs scheduled)
   pausedAt        DateTime? @map("paused_at") // When route was paused

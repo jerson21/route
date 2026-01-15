@@ -7,7 +7,7 @@ import { StopDetailPanel } from '../../components/stops/StopDetailPanel';
 import { ToastContainer, useToast } from '../../components/ui/Toast';
 import {
   MapPin, User, Play, CheckCircle, Trash2, ArrowLeft,
-  Plus, Database, Search, X, GripVertical, Navigation, Loader2, Edit2, ChevronDown, Home, Check, Clock, AlertTriangle, Truck
+  Plus, Database, Search, X, GripVertical, Navigation, Loader2, Edit2, ChevronDown, Home, Check, Clock, AlertTriangle, Truck, Send
 } from 'lucide-react';
 
 interface Stop {
@@ -43,6 +43,7 @@ interface RouteDetail {
   startedAt?: string;
   completedAt?: string;
   optimizedAt?: string;
+  sentAt?: string; // Cuando se envió al conductor
   totalDistanceKm?: number;
   totalDurationMin?: number;
   departureTime?: string; // HH:mm format, route-specific override
@@ -480,6 +481,34 @@ export function RouteDetailPage() {
       addToast('Ruta completada', 'success');
     } catch (err: any) {
       addToast(err.response?.data?.error || 'Error al completar ruta', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleSendToDriver = async () => {
+    try {
+      setActionLoading(true);
+      await api.post(`/routes/${id}/send`);
+      await fetchRoute();
+      addToast('Ruta enviada al conductor', 'success');
+    } catch (err: any) {
+      addToast(err.response?.data?.error || 'Error al enviar ruta', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleUnsendRoute = async () => {
+    if (!confirm('¿Retirar la ruta del conductor? El conductor ya no la verá.')) return;
+
+    try {
+      setActionLoading(true);
+      await api.post(`/routes/${id}/unsend`);
+      await fetchRoute();
+      addToast('Ruta retirada del conductor', 'success');
+    } catch (err: any) {
+      addToast(err.response?.data?.error || 'Error al retirar ruta', 'error');
     } finally {
       setActionLoading(false);
     }
@@ -1215,8 +1244,42 @@ export function RouteDetailPage() {
             </div>
           )}
 
+          {/* Botón Enviar al conductor - después de optimizar */}
+          {route.optimizedAt && route.assignedTo && !route.sentAt && canEdit && (
+            <button
+              onClick={handleSendToDriver}
+              disabled={actionLoading}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50"
+            >
+              <Send className="w-4 h-4" />
+              Enviar al Conductor
+            </button>
+          )}
+
+          {/* Indicador de ruta enviada */}
+          {route.sentAt && (route.status === 'DRAFT' || route.status === 'SCHEDULED') && (
+            <div className="flex items-center justify-between px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
+              <div className="flex items-center gap-2 text-green-700 text-sm">
+                <Check className="w-4 h-4" />
+                <span>Enviada al conductor</span>
+                <span className="text-xs text-green-600">
+                  {new Date(route.sentAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })}
+                </span>
+              </div>
+              {canEdit && (
+                <button
+                  onClick={handleUnsendRoute}
+                  className="text-xs text-red-600 hover:text-red-700 underline"
+                  title="Retirar ruta del conductor"
+                >
+                  Retirar
+                </button>
+              )}
+            </div>
+          )}
+
           {/* Botones de estado de ruta */}
-          {route.status === 'SCHEDULED' && (
+          {route.status === 'SCHEDULED' && route.sentAt && (
             <button
               onClick={handleStartRoute}
               disabled={actionLoading}
@@ -1414,12 +1477,41 @@ export function RouteDetailPage() {
                     <p className="text-xs text-gray-400 truncate">{route.depot.address}</p>
                   </div>
                   <div className="text-right flex-shrink-0 ml-2">
-                    <p className={`text-sm font-medium ${simulatedDepartureTime ? 'text-orange-600' : 'text-gray-600'}`}>
-                      {simulatedDepartureTime || route.departureTime || route.depot.defaultDepartureTime || '08:00'}
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      {simulatedDepartureTime ? 'Simulado' : 'Salida'}
-                    </p>
+                    {/* For started/completed routes, show actual start time */}
+                    {route.startedAt && (route.status === 'IN_PROGRESS' || route.status === 'COMPLETED') ? (
+                      <>
+                        <p className="text-sm font-medium text-green-600">
+                          {new Date(route.startedAt).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          Salida real
+                        </p>
+                        {/* Show if started late/early vs planned */}
+                        {(() => {
+                          const plannedTime = route.departureTime || route.depot?.defaultDepartureTime || '08:00';
+                          const [planH, planM] = plannedTime.split(':').map(Number);
+                          const startedDate = new Date(route.startedAt);
+                          const plannedDate = new Date(startedDate);
+                          plannedDate.setHours(planH, planM, 0, 0);
+                          const diffMin = Math.round((startedDate.getTime() - plannedDate.getTime()) / 60000);
+                          if (diffMin > 5) {
+                            return <p className="text-xs text-orange-500">+{diffMin} min tarde</p>;
+                          } else if (diffMin < -5) {
+                            return <p className="text-xs text-green-500">{diffMin} min antes</p>;
+                          }
+                          return <p className="text-xs text-green-500">A tiempo</p>;
+                        })()}
+                      </>
+                    ) : (
+                      <>
+                        <p className={`text-sm font-medium ${simulatedDepartureTime ? 'text-orange-600' : 'text-gray-600'}`}>
+                          {simulatedDepartureTime || route.departureTime || route.depot.defaultDepartureTime || '08:00'}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          {simulatedDepartureTime ? 'Simulado' : 'Planificada'}
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
               )}
