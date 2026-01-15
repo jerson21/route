@@ -319,20 +319,6 @@ export function RouteDetailPage() {
     fetchDrivers();
   }, [id]);
 
-  // Polling for route updates when route is active (SCHEDULED or IN_PROGRESS)
-  // SSE handles IN_PROGRESS real-time, but polling catches SCHEDULED changes and SSE failures
-  useEffect(() => {
-    if (!route || !['SCHEDULED', 'IN_PROGRESS'].includes(route.status)) {
-      return;
-    }
-
-    const pollInterval = setInterval(() => {
-      fetchRoute();
-    }, 10000); // Poll every 10 seconds for active routes
-
-    return () => clearInterval(pollInterval);
-  }, [route?.status, id]);
-
   useEffect(() => {
     if (addMethod === 'database') {
       fetchDbAddresses(dbSearch);
