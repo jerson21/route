@@ -365,16 +365,21 @@ export function RouteDetailPage() {
     return () => clearInterval(pollInterval);
   }, [route?.status, id]);
 
-  // Auto-refresh route data every 10 seconds when IN_PROGRESS
+  // Auto-refresh route data every 15 seconds when IN_PROGRESS (silent - no loading indicator)
   // This allows seeing real-time status changes from the Android app
   useEffect(() => {
     if (!route || route.status !== 'IN_PROGRESS') {
       return;
     }
 
-    const refreshInterval = setInterval(() => {
-      fetchRoute();
-    }, 10000); // 10 seconds
+    const refreshInterval = setInterval(async () => {
+      try {
+        const response = await api.get(`/routes/${id}`);
+        setRoute(response.data.data);
+      } catch (err) {
+        console.debug('Silent refresh failed:', err);
+      }
+    }, 15000); // 15 seconds, silent
 
     return () => clearInterval(refreshInterval);
   }, [route?.status, id]);
