@@ -410,6 +410,12 @@ export function RouteDetailPage() {
       }
     });
 
+    eventSource.addEventListener('route.started', (event) => {
+      console.log('[SSE] Route started:', event.data);
+      fetchRoute(); // Refresh to get startedAt and recalculated ETAs
+      addToast('Ruta iniciada por el conductor', 'info');
+    });
+
     eventSource.addEventListener('route.completed', (event) => {
       console.log('[SSE] Route completed:', event.data);
       fetchRoute();

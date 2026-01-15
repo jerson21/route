@@ -702,6 +702,18 @@ router.post('/:id/start', async (req: Request, res: Response, next: NextFunction
       });
     }
 
+    // Broadcast SSE para actualizar la web en tiempo real
+    broadcastToRoute(req.params.id, 'route.started', {
+      routeId: updatedRoute.id,
+      status: updatedRoute.status,
+      startedAt: updatedRoute.startedAt,
+      stops: updatedRoute.stops.map(s => ({
+        id: s.id,
+        estimatedArrival: s.estimatedArrival,
+        originalEstimatedArrival: s.originalEstimatedArrival
+      }))
+    });
+
     res.json({ success: true, data: updatedRoute });
   } catch (error) {
     next(error);
