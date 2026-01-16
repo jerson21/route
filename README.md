@@ -479,6 +479,28 @@ DELETE /api/v1/auth/fcm-token     # Eliminar token (en logout)
 
 **Importante:** Al hacer logout, el backend limpia automaticamente el FCM token. Esto evita que un usuario reciba notificaciones de otro usuario en el mismo dispositivo.
 
+#### Enviar Mensaje al Conductor
+
+Desde la web (boton flotante en detalle de ruta) se envia:
+```
+POST /api/v1/users/:driverId/notify
+Authorization: Bearer <token>
+```
+
+**Body:**
+```json
+{
+  "title": "Aviso importante",
+  "body": "El cliente no esta en casa, llamar antes",
+  "data": {
+    "routeId": "uuid-de-la-ruta",
+    "routeName": "Ruta Centro"
+  }
+}
+```
+
+El backend automaticamente agrega `type: "message"` para que Android lo maneje correctamente.
+
 #### Eventos que Generan Notificaciones
 
 | Accion del Admin/Operador | Tipo de Notificacion | Descripcion |
@@ -488,7 +510,7 @@ DELETE /api/v1/auth/fcm-token     # Eliminar token (en logout)
 | Eliminar parada | `stop_removed` | Parada eliminada de ruta activa |
 | Re-optimizar ruta | `route_reoptimized` | Orden de paradas cambio |
 | Cancelar ruta | `route_cancelled` | Ruta fue cancelada |
-| Mensaje del operador | `message` | Mensaje de texto al conductor |
+| Mensaje de operador/admin | `message` | Mensaje de texto al conductor |
 
 #### Estructura del Mensaje FCM
 

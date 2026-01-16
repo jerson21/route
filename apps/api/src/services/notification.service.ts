@@ -207,3 +207,25 @@ export async function removeFcmToken(userId: string): Promise<void> {
   });
   console.log(`[FCM] Token removed for user ${userId}`);
 }
+
+/**
+ * Send a text message to driver (from admin/operator or system)
+ */
+export async function sendMessageToDriver(
+  driverId: string,
+  message: string,
+  routeId: string,
+  senderName?: string
+): Promise<boolean> {
+  return sendToUser(driverId, {
+    title: senderName ? `Mensaje de ${senderName}` : 'Nuevo mensaje',
+    body: message,
+    data: {
+      type: 'message',
+      routeId,
+      message,
+      senderName: senderName || 'Sistema',
+      timestamp: new Date().toISOString()
+    }
+  });
+}

@@ -347,12 +347,15 @@ router.post('/:id/notify', requireRole('ADMIN', 'OPERATOR'), async (req: Request
       throw new AppError(400, 'El usuario no tiene notificaciones habilitadas');
     }
 
-    // Send notification
+    // Send notification with type 'message' for Android to handle
     const success = await notificationService.sendToUser(targetUserId, {
       title,
       body,
       data: {
-        type: 'custom_message',
+        type: 'message',
+        message: body,
+        senderName: title, // The title often contains sender info
+        timestamp: new Date().toISOString(),
         ...(data || {})
       }
     });
