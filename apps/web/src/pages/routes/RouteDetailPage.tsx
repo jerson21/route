@@ -2309,17 +2309,24 @@ export function RouteDetailPage() {
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Titulo
+                  Tipo de mensaje
                 </label>
-                <input
-                  type="text"
+                <select
                   value={messageTitle}
                   onChange={(e) => setMessageTitle(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Ej: Aviso importante"
-                  maxLength={100}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white"
                   autoFocus
-                />
+                >
+                  <option value="">Selecciona un tipo...</option>
+                  <option value="Cambio de direccion">Cambio de direccion</option>
+                  <option value="Espera de pago">Espera de pago</option>
+                  <option value="Mensaje de cliente">Mensaje de cliente</option>
+                  <option value="Cliente no disponible">Cliente no disponible</option>
+                  <option value="Reintento de entrega">Reintento de entrega</option>
+                  <option value="Problema con pedido">Problema con pedido</option>
+                  <option value="Aviso importante">Aviso importante</option>
+                  <option value="Instrucciones especiales">Instrucciones especiales</option>
+                </select>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -2329,7 +2336,7 @@ export function RouteDetailPage() {
                   value={messageBody}
                   onChange={(e) => setMessageBody(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-                  placeholder="Escribe tu mensaje aqui..."
+                  placeholder="Escribe el detalle del mensaje..."
                   rows={4}
                   maxLength={500}
                 />
