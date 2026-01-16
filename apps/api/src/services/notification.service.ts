@@ -57,20 +57,21 @@ export async function sendToUser(userId: string, payload: NotificationPayload): 
       return false;
     }
 
+    // DATA-ONLY message (no 'notification' field)
+    // This ensures onMessageReceived() is ALWAYS called (foreground AND background)
+    // The Android app must create the notification manually
     const message: admin.messaging.Message = {
       token: user.fcmToken,
-      notification: {
+      data: {
+        // Include title and body in data so Android can create notification
         title: payload.title,
-        body: payload.body
+        body: payload.body,
+        ...(payload.data || {})
       },
-      data: payload.data || {},
       android: {
         priority: 'high',
-        notification: {
-          channelId: 'routes',
-          priority: 'high',
-          defaultSound: true
-        }
+        // TTL of 1 hour for message delivery
+        ttl: 3600000
       }
     };
 
