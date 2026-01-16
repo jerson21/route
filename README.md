@@ -10,6 +10,7 @@ Sistema completo de optimización de rutas de entrega con tracking en tiempo rea
 - [Funcionalidades Principales](#funcionalidades-principales)
 - [Arquitectura](#arquitectura)
 - [API Endpoints](#api-endpoints)
+  - [Push Notifications (FCM)](#push-notifications-fcm)
 - [Algoritmos de Optimizacion](#algoritmos-de-optimizacion)
 - [Configuracion](#configuracion)
 - [Usuarios por Defecto](#usuarios-por-defecto)
@@ -432,6 +433,171 @@ Respuesta:
   }
 }
 ```
+
+### Push Notifications (FCM)
+
+Sistema de notificaciones push usando Firebase Cloud Messaging para mantener la app Android sincronizada en tiempo real sin polling excesivo.
+
+#### Configuracion del Backend
+
+Variable de entorno requerida:
+```env
+FIREBASE_SERVICE_ACCOUNT='{"type":"service_account","project_id":"...","private_key":"..."}'
+```
+
+> El JSON completo de la cuenta de servicio de Firebase (una sola linea, escapado).
+
+#### Endpoints FCM
+
+```
+POST   /api/v1/auth/fcm-token     # Guardar token FCM (despues de login)
+DELETE /api/v1/auth/fcm-token     # Eliminar token (en logout)
+```
+
+**Guardar token (POST):**
+```json
+{
+  "fcmToken": "dK9x...token_del_dispositivo"
+}
+```
+
+#### Flujo de Autenticacion con FCM
+
+```
+1. Usuario hace login en Android
+   └─> POST /auth/login → obtiene accessToken + refreshToken
+
+2. App obtiene FCM token de Firebase
+   └─> FirebaseMessaging.getInstance().token
+
+3. App registra el FCM token en el backend
+   └─> POST /auth/fcm-token { fcmToken: "..." }
+
+4. Usuario hace logout
+   └─> POST /auth/logout → automaticamente limpia fcmToken del usuario
+```
+
+**Importante:** Al hacer logout, el backend limpia automaticamente el FCM token. Esto evita que un usuario reciba notificaciones de otro usuario en el mismo dispositivo.
+
+#### Eventos que Generan Notificaciones
+
+| Accion del Admin/Operador | Tipo de Notificacion | Descripcion |
+|---------------------------|---------------------|-------------|
+| Asignar/enviar ruta | `new_route` | Nueva ruta asignada al conductor |
+| Agregar parada | `stop_added` | Parada agregada a ruta activa |
+| Eliminar parada | `stop_removed` | Parada eliminada de ruta activa |
+| Re-optimizar ruta | `route_reoptimized` | Orden de paradas cambio |
+| Cancelar ruta | `route_cancelled` | Ruta fue cancelada |
+| Mensaje del operador | `message` | Mensaje de texto al conductor |
+
+#### Estructura del Mensaje FCM
+
+```json
+{
+  "token": "fcm_token_del_conductor",
+  "notification": {
+    "title": "Nueva ruta asignada",
+    "body": "Tienes una nueva ruta: Ruta Centro con 15 paradas"
+  },
+  "data": {
+    "type": "new_route",
+    "routeId": "uuid-de-la-ruta",
+    "routeName": "Ruta Centro"
+  },
+  "android": {
+    "priority": "high",
+    "notification": {
+      "channelId": "routes",
+      "priority": "high",
+      "defaultSound": true
+    }
+  }
+}
+```
+
+#### Implementacion en Android
+
+**1. Servicio para recibir mensajes:**
+```kotlin
+class RouteMessagingService : FirebaseMessagingService() {
+
+    override fun onMessageReceived(remoteMessage: RemoteMessage) {
+        val data = remoteMessage.data
+
+        when (data["type"]) {
+            "new_route" -> {
+                // Mostrar notificacion y refrescar lista de rutas
+                showNotification(remoteMessage.notification)
+                RouteUpdateBroadcaster.notifyNewRoute(data["routeId"])
+            }
+            "stop_added", "stop_removed", "route_reoptimized" -> {
+                // Refrescar la ruta activa si coincide
+                val routeId = data["routeId"]
+                RouteUpdateBroadcaster.notifyRouteChanged(routeId)
+            }
+            "route_cancelled" -> {
+                // Volver al dashboard
+                RouteUpdateBroadcaster.notifyRouteCancelled(data["routeId"])
+            }
+            "message" -> {
+                // Mostrar mensaje del operador
+                showMessageNotification(data["message"])
+            }
+        }
+    }
+
+    override fun onNewToken(token: String) {
+        // Enviar nuevo token al backend si el usuario esta logueado
+        if (AuthManager.isLoggedIn()) {
+            ApiService.updateFcmToken(token)
+        }
+    }
+}
+```
+
+**2. Broadcaster para notificar a ViewModels:**
+```kotlin
+object RouteUpdateBroadcaster {
+    private val _routeUpdates = MutableSharedFlow<RouteUpdate>()
+    val routeUpdates = _routeUpdates.asSharedFlow()
+
+    suspend fun notifyRouteChanged(routeId: String) {
+        _routeUpdates.emit(RouteUpdate.Changed(routeId))
+    }
+
+    suspend fun notifyNewRoute(routeId: String) {
+        _routeUpdates.emit(RouteUpdate.NewRoute(routeId))
+    }
+}
+```
+
+**3. En el ViewModel, escuchar cambios:**
+```kotlin
+class RouteDetailViewModel : ViewModel() {
+    init {
+        viewModelScope.launch {
+            RouteUpdateBroadcaster.routeUpdates.collect { update ->
+                when (update) {
+                    is RouteUpdate.Changed -> {
+                        if (update.routeId == currentRouteId) {
+                            refreshRoute() // Recargar desde API
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+```
+
+#### Ventajas vs Polling
+
+| Aspecto | Polling (cada 10s) | Push FCM |
+|---------|-------------------|----------|
+| Bateria | Alto consumo | Minimo |
+| Datos moviles | ~500KB/hora | Solo cuando hay cambios |
+| Latencia | Hasta 10s de delay | Instantaneo (<1s) |
+| Carga servidor | Alta (1 req/10s/usuario) | Ninguna |
 
 ### Otros
 ```
