@@ -144,15 +144,23 @@ export async function refreshAccessToken(refreshToken: string) {
 }
 
 export async function logout(userId: string, refreshToken: string) {
-  await prisma.refreshToken.updateMany({
-    where: {
-      userId,
-      tokenHash: refreshToken
-    },
-    data: {
-      revokedAt: new Date()
-    }
-  });
+  // Revoke refresh token and clear FCM token in a transaction
+  await prisma.$transaction([
+    prisma.refreshToken.updateMany({
+      where: {
+        userId,
+        tokenHash: refreshToken
+      },
+      data: {
+        revokedAt: new Date()
+      }
+    }),
+    // Clear FCM token so this device stops receiving notifications for this user
+    prisma.user.update({
+      where: { id: userId },
+      data: { fcmToken: null }
+    })
+  ]);
 }
 
 export async function getCurrentUser(userId: string) {
