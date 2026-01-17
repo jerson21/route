@@ -307,7 +307,8 @@ router.get('/:id/preferences', async (req: Request, res: Response, next: NextFun
       navigationApp: 'google_maps', // google_maps | waze | apple_maps
       soundEnabled: true,
       vibrationEnabled: true,
-      keepScreenOn: true
+      keepScreenOn: true,
+      arrivalAlertIntrusive: false // false = notificación no intrusiva al llegar
     };
 
     const preferences = user.preferences
@@ -346,7 +347,8 @@ router.patch('/:id/preferences', async (req: Request, res: Response, next: NextF
       'navigationApp',
       'soundEnabled',
       'vibrationEnabled',
-      'keepScreenOn'
+      'keepScreenOn',
+      'arrivalAlertIntrusive'
     ];
 
     const newPreferences = req.body;
