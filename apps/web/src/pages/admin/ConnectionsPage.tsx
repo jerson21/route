@@ -186,11 +186,13 @@ export function ConnectionsPage() {
                       <span className={`px-2 py-1 rounded-full text-xs font-medium ${getRoleColor(user.role)}`}>
                         {user.role}
                       </span>
-                      {user.hasFcmToken ? (
-                        <CheckCircle className="w-5 h-5 text-green-500" title="FCM habilitado" />
-                      ) : (
-                        <XCircle className="w-5 h-5 text-gray-400" title="Sin FCM token" />
-                      )}
+                      <span title={user.hasFcmToken ? "FCM habilitado" : "Sin FCM token"}>
+                        {user.hasFcmToken ? (
+                          <CheckCircle className="w-5 h-5 text-green-500" />
+                        ) : (
+                          <XCircle className="w-5 h-5 text-gray-400" />
+                        )}
+                      </span>
                     </div>
                   </div>
                   {user.tokenPreview && (
