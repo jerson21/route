@@ -230,3 +230,18 @@ export async function sendMessageToDriver(
     }
   });
 }
+
+/**
+ * Notify user that their preferences were updated remotely (by admin)
+ * The Android app should reload preferences when receiving this notification
+ */
+export async function notifyPreferencesUpdated(userId: string): Promise<boolean> {
+  return sendToUser(userId, {
+    title: 'Preferencias actualizadas',
+    body: 'Tus preferencias han sido actualizadas',
+    data: {
+      type: 'preferences_updated',
+      timestamp: new Date().toISOString()
+    }
+  });
+}

@@ -370,6 +370,12 @@ router.patch('/:id/preferences', async (req: Request, res: Response, next: NextF
       select: { id: true, preferences: true }
     });
 
+    // Notify the user if their preferences were changed by someone else (admin)
+    // This allows the Android app to reload preferences without re-login
+    if (req.user!.id !== targetUserId) {
+      notificationService.notifyPreferencesUpdated(targetUserId);
+    }
+
     res.json({ success: true, data: updatedUser.preferences });
   } catch (error) {
     next(error);
