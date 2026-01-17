@@ -373,12 +373,19 @@ router.post('/:id/notify', requireRole('ADMIN', 'OPERATOR'), async (req: Request
   }
 });
 
-// GET /users/connected - Get users with FCM tokens (connected to push notifications)
+// GET /users/connected - Get users with active sessions (valid refresh tokens)
 router.get('/connected', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const connectedUsers = await prisma.user.findMany({
+    // Find users with at least one valid (non-revoked, non-expired) refresh token
+    const activeUsers = await prisma.user.findMany({
       where: {
-        fcmToken: { not: null }
+        isActive: true,
+        refreshTokens: {
+          some: {
+            revokedAt: null,
+            expiresAt: { gt: new Date() }
+          }
+        }
       },
       select: {
         id: true,
@@ -387,23 +394,33 @@ router.get('/connected', requireRole('ADMIN', 'OPERATOR'), async (req: Request, 
         email: true,
         role: true,
         fcmToken: true,
-        updatedAt: true
+        lastLoginAt: true,
+        refreshTokens: {
+          where: {
+            revokedAt: null,
+            expiresAt: { gt: new Date() }
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { createdAt: true }
+        }
       },
-      orderBy: { updatedAt: 'desc' }
+      orderBy: { lastLoginAt: 'desc' }
     });
 
     res.json({
       success: true,
-      data: connectedUsers.map(user => ({
+      data: activeUsers.map(user => ({
         id: user.id,
         name: `${user.firstName} ${user.lastName}`.trim(),
         email: user.email,
         role: user.role,
-        hasToken: !!user.fcmToken,
+        hasFcmToken: !!user.fcmToken,
         tokenPreview: user.fcmToken ? `${user.fcmToken.substring(0, 20)}...` : null,
-        lastActivity: user.updatedAt
+        lastLogin: user.lastLoginAt,
+        lastTokenRefresh: user.refreshTokens[0]?.createdAt || null
       })),
-      total: connectedUsers.length
+      total: activeUsers.length
     });
   } catch (error) {
     next(error);

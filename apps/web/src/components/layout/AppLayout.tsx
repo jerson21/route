@@ -13,7 +13,7 @@ const navigation = [
   { name: 'Rutas', href: '/routes', icon: Route, roles: ['ADMIN', 'OPERATOR', 'DRIVER'] },
   { name: 'Paradas', href: '/stops', icon: MapPin, roles: ['ADMIN', 'OPERATOR'] },
   { name: 'Conductores', href: '/drivers', icon: Truck, roles: ['ADMIN', 'OPERATOR'] },
-  { name: 'Conexiones', href: '/connections', icon: Wifi, roles: ['ADMIN', 'OPERATOR'] },
+  { name: 'Sesiones', href: '/connections', icon: Wifi, roles: ['ADMIN', 'OPERATOR'] },
 ];
 
 const bottomNavigation = [
