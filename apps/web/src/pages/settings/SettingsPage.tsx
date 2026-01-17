@@ -30,6 +30,7 @@ interface DriverPreferences {
   soundEnabled: boolean;
   vibrationEnabled: boolean;
   keepScreenOn: boolean;
+  arrivalAlertIntrusive: boolean;
 }
 
 type SettingsSection = 'depots' | 'notifications' | 'webhook' | 'drivers' | 'delivery';
@@ -766,6 +767,21 @@ export function SettingsPage() {
                       <div>
                         <span className="text-sm text-gray-700">Mantener pantalla encendida</span>
                         <p className="text-xs text-gray-500">Evitar que la pantalla se apague durante la ruta</p>
+                      </div>
+                    </label>
+                    <label className="flex items-center gap-3 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={driverPreferences.arrivalAlertIntrusive}
+                        onChange={(e) => setDriverPreferences({
+                          ...driverPreferences,
+                          arrivalAlertIntrusive: e.target.checked
+                        })}
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded"
+                      />
+                      <div>
+                        <span className="text-sm text-gray-700">Alerta de llegada intrusiva</span>
+                        <p className="text-xs text-gray-500">Mostrar dialogo modal al llegar a destino (si esta desactivado, solo notificacion)</p>
                       </div>
                     </label>
                   </div>
