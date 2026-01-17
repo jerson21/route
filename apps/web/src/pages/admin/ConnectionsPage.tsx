@@ -11,7 +11,7 @@ import {
   Wifi,
   WifiOff
 } from 'lucide-react';
-import api from '../../services/api';
+import { api } from '../../services/api';
 
 interface ConnectedUser {
   id: string;
