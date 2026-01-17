@@ -7,6 +7,7 @@ import { RoutesPage } from './pages/routes/RoutesPage';
 import { RouteDetailPage } from './pages/routes/RouteDetailPage';
 import { AddressesPage } from './pages/addresses/AddressesPage';
 import { UsersPage } from './pages/admin/UsersPage';
+import { ConnectionsPage } from './pages/admin/ConnectionsPage';
 import { SettingsPage } from './pages/settings/SettingsPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -43,6 +44,7 @@ function App() {
         <Route path="routes/:id" element={<RouteDetailPage />} />
         <Route path="stops" element={<AddressesPage />} />
         <Route path="drivers" element={<UsersPage />} />
+        <Route path="connections" element={<ConnectionsPage />} />
         <Route path="settings" element={<SettingsPage />} />
       </Route>
 

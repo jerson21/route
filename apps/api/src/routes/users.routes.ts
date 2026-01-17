@@ -373,4 +373,41 @@ router.post('/:id/notify', requireRole('ADMIN', 'OPERATOR'), async (req: Request
   }
 });
 
+// GET /users/connected - Get users with FCM tokens (connected to push notifications)
+router.get('/connected', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const connectedUsers = await prisma.user.findMany({
+      where: {
+        fcmToken: { not: null }
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        role: true,
+        fcmToken: true,
+        updatedAt: true
+      },
+      orderBy: { updatedAt: 'desc' }
+    });
+
+    res.json({
+      success: true,
+      data: connectedUsers.map(user => ({
+        id: user.id,
+        name: `${user.firstName} ${user.lastName}`.trim(),
+        email: user.email,
+        role: user.role,
+        hasToken: !!user.fcmToken,
+        tokenPreview: user.fcmToken ? `${user.fcmToken.substring(0, 20)}...` : null,
+        lastActivity: user.updatedAt
+      })),
+      total: connectedUsers.length
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 export { router as userRoutes };
