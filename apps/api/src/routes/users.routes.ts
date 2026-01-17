@@ -107,6 +107,61 @@ router.get('/drivers', requireRole('ADMIN', 'OPERATOR'), async (req: Request, re
   }
 });
 
+// GET /users/connected - Get users with active sessions (valid refresh tokens)
+// IMPORTANT: This must be before /:id route to avoid matching "connected" as an id
+router.get('/connected', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    // Find users with at least one valid (non-revoked, non-expired) refresh token
+    const activeUsers = await prisma.user.findMany({
+      where: {
+        isActive: true,
+        refreshTokens: {
+          some: {
+            revokedAt: null,
+            expiresAt: { gt: new Date() }
+          }
+        }
+      },
+      select: {
+        id: true,
+        firstName: true,
+        lastName: true,
+        email: true,
+        role: true,
+        fcmToken: true,
+        lastLoginAt: true,
+        refreshTokens: {
+          where: {
+            revokedAt: null,
+            expiresAt: { gt: new Date() }
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { createdAt: true }
+        }
+      },
+      orderBy: { lastLoginAt: 'desc' }
+    });
+
+    res.json({
+      success: true,
+      data: activeUsers.map(user => ({
+        id: user.id,
+        name: `${user.firstName} ${user.lastName}`.trim(),
+        email: user.email,
+        role: user.role,
+        hasFcmToken: !!user.fcmToken,
+        tokenPreview: user.fcmToken ? `${user.fcmToken.substring(0, 20)}...` : null,
+        lastLogin: user.lastLoginAt,
+        lastTokenRefresh: user.refreshTokens[0]?.createdAt || null
+      })),
+      total: activeUsers.length
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // GET /users/:id
 router.get('/:id', requireRole('ADMIN'), async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -369,60 +424,6 @@ router.post('/:id/notify', requireRole('ADMIN', 'OPERATOR'), async (req: Request
     if (error instanceof z.ZodError) {
       return next(new AppError(400, error.errors[0].message));
     }
-    next(error);
-  }
-});
-
-// GET /users/connected - Get users with active sessions (valid refresh tokens)
-router.get('/connected', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    // Find users with at least one valid (non-revoked, non-expired) refresh token
-    const activeUsers = await prisma.user.findMany({
-      where: {
-        isActive: true,
-        refreshTokens: {
-          some: {
-            revokedAt: null,
-            expiresAt: { gt: new Date() }
-          }
-        }
-      },
-      select: {
-        id: true,
-        firstName: true,
-        lastName: true,
-        email: true,
-        role: true,
-        fcmToken: true,
-        lastLoginAt: true,
-        refreshTokens: {
-          where: {
-            revokedAt: null,
-            expiresAt: { gt: new Date() }
-          },
-          orderBy: { createdAt: 'desc' },
-          take: 1,
-          select: { createdAt: true }
-        }
-      },
-      orderBy: { lastLoginAt: 'desc' }
-    });
-
-    res.json({
-      success: true,
-      data: activeUsers.map(user => ({
-        id: user.id,
-        name: `${user.firstName} ${user.lastName}`.trim(),
-        email: user.email,
-        role: user.role,
-        hasFcmToken: !!user.fcmToken,
-        tokenPreview: user.fcmToken ? `${user.fcmToken.substring(0, 20)}...` : null,
-        lastLogin: user.lastLoginAt,
-        lastTokenRefresh: user.refreshTokens[0]?.createdAt || null
-      })),
-      total: activeUsers.length
-    });
-  } catch (error) {
     next(error);
   }
 });

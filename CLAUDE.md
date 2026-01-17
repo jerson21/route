@@ -25,6 +25,19 @@ packages/
 
 ## Errores Comunes y Soluciones
 
+### Express: Orden de rutas importa
+Las rutas parametrizadas (`:id`) capturan cualquier valor. Definir rutas especificas ANTES de las parametrizadas:
+
+```typescript
+// MAL - /users/connected se interpreta como /users/:id con id="connected"
+router.get('/:id', ...);
+router.get('/connected', ...);
+
+// BIEN - rutas especificas primero
+router.get('/connected', ...);  // Debe ir primero
+router.get('/:id', ...);        // Despues las parametrizadas
+```
+
 ### lucide-react: No usar `title` como prop
 Los iconos de lucide-react NO aceptan la prop `title`. Para tooltips, envolver en un elemento HTML:
 
