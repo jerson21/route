@@ -143,13 +143,14 @@ export async function refreshAccessToken(refreshToken: string) {
   }
 }
 
-export async function logout(userId: string, refreshToken: string) {
-  // Revoke refresh token and clear FCM token in a transaction
+export async function logout(userId: string, refreshToken?: string) {
+  // Revoke ALL refresh tokens for this user and clear FCM token
+  // This ensures the user is fully logged out from all sessions
   await prisma.$transaction([
     prisma.refreshToken.updateMany({
       where: {
         userId,
-        tokenHash: refreshToken
+        revokedAt: null // Only revoke active tokens
       },
       data: {
         revokedAt: new Date()
