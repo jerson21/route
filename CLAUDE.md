@@ -86,17 +86,17 @@ El build de produccion usa TypeScript strict. Asegurarse de que no hay errores d
 ## Comandos Utiles (Servidor)
 
 ### PostgreSQL
-Usuario: `route_user` | Base de datos: `route_optimizer`
+Usuario: `route_user` | Base de datos: `route_db`
 
 ```bash
 # Conectar a PostgreSQL
-docker compose exec postgres psql -U route_user -d route_optimizer
+docker compose exec postgres psql -U route_user -d route_db
 
 # Ver refresh tokens activos (sesiones)
-docker compose exec postgres psql -U route_user -d route_optimizer -c "SELECT u.email, rt.expires_at, rt.revoked_at FROM refresh_tokens rt JOIN users u ON rt.user_id = u.id WHERE rt.revoked_at IS NULL ORDER BY rt.created_at DESC LIMIT 5;"
+docker compose exec postgres psql -U route_user -d route_db -c "SELECT u.email, rt.expires_at, rt.revoked_at FROM refresh_tokens rt JOIN users u ON rt.user_id = u.id WHERE rt.revoked_at IS NULL ORDER BY rt.created_at DESC LIMIT 5;"
 
 # Ver usuarios con FCM token
-docker compose exec postgres psql -U route_user -d route_optimizer -c "SELECT email, fcm_token IS NOT NULL as has_fcm FROM users WHERE is_active = true;"
+docker compose exec postgres psql -U route_user -d route_db -c "SELECT email, fcm_token IS NOT NULL as has_fcm FROM users WHERE is_active = true;"
 ```
 
 ### Docker
