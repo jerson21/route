@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Upload, MapPin, Search, RefreshCw, CheckCircle, XCircle, Clock, Plus, X } from 'lucide-react';
+import { Upload, MapPin, Search, RefreshCw, CheckCircle, XCircle, Clock, Plus, X, Download, FileSpreadsheet } from 'lucide-react';
 import { RouteMap } from '../../components/map/RouteMap';
 import { api } from '../../services/api';
 
@@ -31,6 +31,7 @@ export function AddressesPage() {
   const [uploading, setUploading] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
   const [showNewAddressModal, setShowNewAddressModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [newAddress, setNewAddress] = useState({
     street: '',
@@ -67,6 +68,49 @@ export function AddressesPage() {
     fetchAddresses();
   }, [search, statusFilter]);
 
+  const downloadTemplate = () => {
+    // Template CSV con todas las columnas soportadas
+    const headers = [
+      'direccion',
+      'numero',
+      'depto',
+      'ciudad',
+      'estado',
+      'cp',
+      'pais',
+      'nombre',
+      'telefono',
+      'rut',
+      'num_orden',
+      'mododepago',
+      'pagado',
+      'notas'
+    ];
+
+    const exampleRows = [
+      ['Av. Providencia', '1234', 'Depto 501', 'Santiago', 'RM', '7500000', 'Chile', 'Juan Pérez', '+56912345678', '12345678-9', '10001', 'Transferencia', 'no', 'Dejar con conserje'],
+      ['Los Leones', '567', 'Of. 302', 'Providencia', 'RM', '7500100', 'Chile', 'María González', '+56987654321', '98765432-1', '10002', 'Efectivo', 'no', ''],
+      ['Apoquindo', '4500', '', 'Las Condes', 'RM', '7550000', 'Chile', 'Pedro Soto', '+56955555555', '11111111-1', '10003', 'Transferencia', 'si', 'Ya pagado']
+    ];
+
+    const csvContent = [
+      headers.join(','),
+      ...exampleRows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    // Agregar BOM para UTF-8 (para que Excel lo lea correctamente)
+    const BOM = '\uFEFF';
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'template_direcciones.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
@@ -80,6 +124,7 @@ export function AddressesPage() {
         headers: { 'Content-Type': 'multipart/form-data' }
       });
 
+      setShowImportModal(false);
       alert(`Se importaron ${response.data.count} direcciones correctamente`);
       fetchAddresses();
     } catch (error: any) {
@@ -185,20 +230,12 @@ export function AddressesPage() {
               <Plus className="w-4 h-4" />
               Nueva Dirección
             </button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
             <button
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
             >
               <Upload className="w-4 h-4" />
-              {uploading ? 'Importando...' : 'Importar Excel'}
+              Importar Excel
             </button>
             {pendingCount > 0 && (
               <button
@@ -535,6 +572,114 @@ export function AddressesPage() {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Import Excel Modal */}
+        {showImportModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl w-full max-w-xl">
+              <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+                <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-green-600" />
+                  Importar Direcciones
+                </h3>
+                <button
+                  onClick={() => setShowImportModal(false)}
+                  className="p-2 hover:bg-gray-100 rounded-lg"
+                >
+                  <X className="w-5 h-5 text-gray-400" />
+                </button>
+              </div>
+
+              <div className="p-6 space-y-6">
+                {/* Download Template Section */}
+                <div className="bg-blue-50 rounded-lg p-4">
+                  <h4 className="font-medium text-blue-900 mb-2">1. Descarga el template</h4>
+                  <p className="text-sm text-blue-700 mb-3">
+                    Usa nuestro template con las columnas correctas para importar direcciones fácilmente.
+                  </p>
+                  <button
+                    onClick={downloadTemplate}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                  >
+                    <Download className="w-4 h-4" />
+                    Descargar Template CSV
+                  </button>
+                </div>
+
+                {/* Column Info */}
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <h4 className="font-medium text-gray-900 mb-2">Columnas soportadas</h4>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className="text-green-600">*</span>
+                      <span className="text-gray-700">direccion (calle)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-green-600">*</span>
+                      <span className="text-gray-700">ciudad</span>
+                    </div>
+                    <div className="text-gray-500">numero</div>
+                    <div className="text-gray-500">depto (unidad)</div>
+                    <div className="text-gray-500">estado (región)</div>
+                    <div className="text-gray-500">cp (código postal)</div>
+                    <div className="text-gray-500">nombre (cliente)</div>
+                    <div className="text-gray-500">telefono</div>
+                    <div className="text-gray-500">rut</div>
+                    <div className="text-gray-500">num_orden</div>
+                    <div className="text-gray-500">mododepago</div>
+                    <div className="text-gray-500">pagado (si/no)</div>
+                    <div className="text-gray-500">notas</div>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-2">
+                    * Campos requeridos. Los demás son opcionales.
+                  </p>
+                </div>
+
+                {/* Upload Section */}
+                <div>
+                  <h4 className="font-medium text-gray-900 mb-2">2. Sube tu archivo</h4>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls,.csv"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  <div
+                    onClick={() => fileInputRef.current?.click()}
+                    className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center cursor-pointer hover:border-green-500 hover:bg-green-50 transition-colors"
+                  >
+                    {uploading ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <RefreshCw className="w-8 h-8 text-green-600 animate-spin" />
+                        <span className="text-green-600 font-medium">Importando...</span>
+                      </div>
+                    ) : (
+                      <>
+                        <Upload className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+                        <p className="text-gray-600">
+                          Haz clic para seleccionar o arrastra tu archivo aquí
+                        </p>
+                        <p className="text-sm text-gray-400 mt-1">
+                          Excel (.xlsx, .xls) o CSV
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-3 px-6 py-4 border-t border-gray-200">
+                <button
+                  onClick={() => setShowImportModal(false)}
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                >
+                  Cerrar
+                </button>
+              </div>
             </div>
           </div>
         )}
