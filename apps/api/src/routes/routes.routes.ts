@@ -1828,11 +1828,12 @@ router.post('/:id/stops/:stopId/arrive', async (req: Request, res: Response, nex
 router.post('/:id/stops/:stopId/payment', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id: routeId, stopId } = req.params;
-    const { amount, method, notes, paymentAmount } = req.body;
+    const { amount, method, notes, paymentAmount, customerRut, collectedBy } = req.body;
 
     // Validar que la parada pertenece a la ruta
     const stop = await prisma.stop.findFirst({
-      where: { id: stopId, routeId }
+      where: { id: stopId, routeId },
+      include: { address: true }
     });
 
     if (!stop) {
@@ -1854,31 +1855,102 @@ router.post('/:id/stops/:stopId/payment', async (req: Request, res: Response, ne
     }
 
     // Validar método de pago
-    const validMethods = ['CASH', 'CARD', 'TRANSFER', 'CHECK', 'OTHER'];
-    if (method && !validMethods.includes(method.toUpperCase())) {
+    const validMethods = ['CASH', 'CARD', 'TRANSFER', 'ONLINE', 'CHECK', 'OTHER'];
+    const upperMethod = method?.toUpperCase() || 'CASH';
+    if (!validMethods.includes(upperMethod)) {
       throw new AppError(400, `Método de pago inválido. Debe ser: ${validMethods.join(', ')}`);
     }
 
-    // Determinar el estado de pago
     const collectionAmount = amount || 0;
     const expectedAmount = paymentAmount || stop.paymentAmount || 0;
-    let paymentStatus: 'PAID' | 'PARTIAL' | 'PENDING' = 'PAID';
 
+    // Para TRANSFER: crear registro Payment y dejar pendiente verificación
+    if (upperMethod === 'TRANSFER') {
+      // Validar que tiene RUT para verificación
+      const rutToUse = customerRut || stop.customerRut;
+      if (!rutToUse) {
+        throw new AppError(400, 'Se requiere RUT del cliente para pagos por transferencia');
+      }
+
+      // Determinar método de pago válido para el enum
+      const prismaMethod = upperMethod as 'CASH' | 'CARD' | 'TRANSFER' | 'ONLINE';
+
+      // Crear registro de pago pendiente
+      const payment = await prisma.payment.create({
+        data: {
+          stopId,
+          amount: collectionAmount || expectedAmount,
+          method: prismaMethod,
+          status: 'PENDING',
+          customerRut: rutToUse,
+          notes: notes || null,
+          collectedBy: collectedBy || 'driver'
+        }
+      });
+
+      // Actualizar Stop con RUT (para referencia) pero NO marcar como pagado
+      await prisma.stop.update({
+        where: { id: stopId },
+        data: {
+          customerRut: rutToUse,
+          paymentMethod: upperMethod,
+          paymentAmount: expectedAmount || null,
+          collectionAmount: collectionAmount || null,
+          paymentNotes: notes || null
+          // isPaid y paymentStatus NO se actualizan hasta verificar
+        }
+      });
+
+      return res.json({
+        success: true,
+        message: 'Pago registrado, pendiente verificación de transferencia',
+        data: {
+          paymentId: payment.id,
+          status: 'PENDING',
+          requiresVerification: true,
+          customerRut: rutToUse
+        }
+      });
+    }
+
+    // Para otros métodos (CASH, CARD, etc.): pago inmediato
+    let paymentStatus: 'PAID' | 'PARTIAL' | 'PENDING' = 'PAID';
     if (collectionAmount > 0 && expectedAmount > 0 && collectionAmount < expectedAmount) {
       paymentStatus = 'PARTIAL';
     }
 
-    // Actualizar pago
+    // Determinar método de pago válido para el enum
+    const prismaMethod = ['CASH', 'CARD', 'TRANSFER', 'ONLINE'].includes(upperMethod)
+      ? (upperMethod as 'CASH' | 'CARD' | 'TRANSFER' | 'ONLINE')
+      : 'CASH';
+
+    // Crear registro de pago confirmado
+    const payment = await prisma.payment.create({
+      data: {
+        stopId,
+        amount: collectionAmount || expectedAmount,
+        method: prismaMethod,
+        status: 'VERIFIED', // Pagos en efectivo/tarjeta se verifican al instante
+        customerRut: customerRut || stop.customerRut || null,
+        notes: notes || null,
+        collectedBy: collectedBy || 'driver',
+        verifiedAt: new Date(),
+        verifiedBy: 'driver'
+      }
+    });
+
+    // Actualizar Stop como pagado
     const updatedStop = await prisma.stop.update({
       where: { id: stopId },
       data: {
         isPaid: true,
         paymentStatus,
-        paymentMethod: method?.toUpperCase() || null,
+        paymentMethod: upperMethod,
         paymentAmount: expectedAmount || null,
         collectionAmount: collectionAmount || null,
         paymentNotes: notes || null,
-        paidAt: new Date()
+        paidAt: new Date(),
+        customerRut: customerRut || stop.customerRut || null
       },
       include: { address: true }
     });
@@ -1886,7 +1958,10 @@ router.post('/:id/stops/:stopId/payment', async (req: Request, res: Response, ne
     res.json({
       success: true,
       message: 'Pago registrado correctamente',
-      data: updatedStop
+      data: {
+        ...updatedStop,
+        paymentId: payment.id
+      }
     });
   } catch (error) {
     next(error);

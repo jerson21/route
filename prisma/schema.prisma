@@ -52,6 +52,20 @@ enum PaymentStatus {
   CANCELLED
 }
 
+enum PaymentMethod {
+  CASH
+  CARD
+  TRANSFER
+  ONLINE
+}
+
+enum TransferStatus {
+  PENDING   // Esperando verificación
+  VERIFIED  // Transferencia verificada
+  NOT_FOUND // No se encontró la transferencia
+  EXPIRED   // Timeout sin verificación
+}
+
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
@@ -222,13 +236,15 @@ model Stop {
   collectionAmount Float?        @map("collection_amount") // Actually collected
   paymentNotes     String?       @map("payment_notes")
   paidAt           DateTime?     @map("paid_at")
+  customerRut      String?       @map("customer_rut") // RUT del cliente para verificación de transferencias
 
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
   // Relations
-  route   Route   @relation(fields: [routeId], references: [id], onDelete: Cascade)
-  address Address @relation(fields: [addressId], references: [id])
+  route    Route     @relation(fields: [routeId], references: [id], onDelete: Cascade)
+  address  Address   @relation(fields: [addressId], references: [id])
+  payments Payment[]
 
   @@unique([routeId, sequenceOrder])
   @@index([routeId])
@@ -307,4 +323,40 @@ model Depot {
   routes Route[] @relation("DepotRoutes")
 
   @@map("depots")
+}
+
+// Payment - Registro de pago con verificación de transferencias
+model Payment {
+  id          String        @id @default(uuid())
+  stopId      String        @map("stop_id")
+  amount      Decimal       @db.Decimal(10, 2)
+  method      PaymentMethod
+  status      TransferStatus @default(PENDING)
+
+  customerRut String?       @map("customer_rut") // RUT para verificación
+  notes       String?
+  collectedBy String        @map("collected_by") // "driver" | "office" | "online"
+
+  // Verificación de transferencia
+  transactionId String?   @map("transaction_id") // ID de transacción bancaria
+  bankReference String?   @map("bank_reference")
+  verifiedAt    DateTime? @map("verified_at")
+  verifiedBy    String?   @map("verified_by") // "webhook" | "driver" | "operator"
+
+  // Sincronización con Intranet
+  intranetSynced   Boolean   @default(false) @map("intranet_synced")
+  intranetSyncedAt DateTime? @map("intranet_synced_at")
+  intranetId       String?   @map("intranet_id") // ID en sistema Intranet
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  stop Stop @relation(fields: [stopId], references: [id], onDelete: Cascade)
+
+  @@index([stopId])
+  @@index([status])
+  @@index([customerRut])
+  @@index([method])
+  @@map("payments")
 }
