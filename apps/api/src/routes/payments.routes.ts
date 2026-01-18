@@ -209,10 +209,15 @@ router.get('/pending', requireRole('ADMIN', 'OPERATOR'), async (req: Request, re
  * POST /payments/:id/verify
  * Verificación manual por conductor - llama a Lambda
  * El conductor presiona "Validar" en la app Android
+ *
+ * Body opcional:
+ * - customerRut: RUT alternativo si la transferencia fue desde otro RUT
+ * - amount: Monto alternativo si difiere del registrado
  */
 router.post('/:id/verify', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
+    const { customerRut: alternativeRut, amount: alternativeAmount } = req.body;
 
     const payment = await prisma.payment.findUnique({
       where: { id },
@@ -242,9 +247,14 @@ router.post('/:id/verify', async (req: Request, res: Response, next: NextFunctio
       throw new AppError(400, 'Solo se pueden verificar pagos por transferencia');
     }
 
-    if (!payment.customerRut) {
-      throw new AppError(400, 'El pago no tiene RUT asociado para verificar');
+    // Usar RUT alternativo si se proporciona, sino el del pago
+    const rutToVerify = alternativeRut || payment.customerRut;
+    if (!rutToVerify) {
+      throw new AppError(400, 'Se requiere RUT para verificar. Proporciona customerRut en el body.');
     }
+
+    // Usar monto alternativo si se proporciona
+    const amountToVerify = alternativeAmount || Number(payment.amount);
 
     // Llamar a Lambda para verificar
     const lambdaUrl = process.env.PAYMENT_VERIFICATION_LAMBDA_URL;
@@ -254,6 +264,8 @@ router.post('/:id/verify', async (req: Request, res: Response, next: NextFunctio
       throw new AppError(500, 'Servicio de verificación no configurado');
     }
 
+    console.log(`[Payment Verify] Verificando RUT=${rutToVerify}, monto=${amountToVerify}`);
+
     try {
       const lambdaResponse = await fetch(lambdaUrl, {
         method: 'POST',
@@ -262,8 +274,8 @@ router.post('/:id/verify', async (req: Request, res: Response, next: NextFunctio
           'X-Api-Key': process.env.PAYMENT_VERIFICATION_API_KEY || ''
         },
         body: JSON.stringify({
-          customerRut: payment.customerRut,
-          amount: Number(payment.amount)
+          customerRut: rutToVerify,
+          amount: amountToVerify
         })
       });
 
@@ -275,15 +287,20 @@ router.post('/:id/verify', async (req: Request, res: Response, next: NextFunctio
 
       if (lambdaResult.found) {
         // Transferencia encontrada - actualizar como verificada
+        // Si se usó RUT alternativo, guardarlo en el pago
         await prisma.$transaction([
           prisma.payment.update({
             where: { id },
             data: {
               status: 'VERIFIED',
+              customerRut: rutToVerify, // Guardar el RUT que realmente se usó
               transactionId: lambdaResult.transactionId || null,
               bankReference: lambdaResult.bankReference || null,
               verifiedAt: new Date(),
-              verifiedBy: 'driver'
+              verifiedBy: 'driver',
+              notes: alternativeRut
+                ? `${payment.notes || ''} [Verificado con RUT alternativo: ${alternativeRut}]`.trim()
+                : payment.notes
             }
           }),
           prisma.stop.update({
@@ -299,6 +316,7 @@ router.post('/:id/verify', async (req: Request, res: Response, next: NextFunctio
         res.json({
           success: true,
           verified: true,
+          usedAlternativeRut: !!alternativeRut,
           message: 'Transferencia verificada correctamente'
         });
       } else {

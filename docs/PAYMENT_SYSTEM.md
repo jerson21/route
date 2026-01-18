@@ -226,13 +226,23 @@ X-Webhook-Secret: {PAYMENT_WEBHOOK_SECRET}
 ```http
 POST /api/v1/payments/:paymentId/verify
 Authorization: Bearer {token}
+
+// Body OPCIONAL - para cuando la transferencia fue desde otro RUT
+{
+  "customerRut": "98765432-1",  // RUT alternativo (familiar, empresa, etc.)
+  "amount": 50000              // Monto alternativo si difiere
+}
 ```
+
+**Caso de uso:** El cliente dice "mi esposa hizo la transferencia desde su cuenta".
+El conductor ingresa el RUT de la esposa para verificar.
 
 **Respuesta verificado:**
 ```json
 {
   "success": true,
   "verified": true,
+  "usedAlternativeRut": true,
   "message": "Transferencia verificada correctamente"
 }
 ```
@@ -400,9 +410,35 @@ suspend fun recordPayment(
 
 ```kotlin
 // Boton "Validar Transferencia" en UI de parada pendiente
-suspend fun verifyTransfer(paymentId: String): VerifyResult {
-    return api.post("/payments/$paymentId/verify")
+// Si el cliente dice que transfirio desde otro RUT, mostrar campo para ingresarlo
+suspend fun verifyTransfer(
+    paymentId: String,
+    alternativeRut: String? = null,  // RUT alternativo (familiar, empresa)
+    alternativeAmount: Double? = null
+): VerifyResult {
+    return api.post("/payments/$paymentId/verify") {
+        if (alternativeRut != null || alternativeAmount != null) {
+            json {
+                alternativeRut?.let { "customerRut" to it }
+                alternativeAmount?.let { "amount" to it }
+            }
+        }
+    }
 }
+```
+
+**UI sugerida:**
+```
+┌─────────────────────────────────────┐
+│  Verificar Transferencia            │
+├─────────────────────────────────────┤
+│  RUT del cliente: 12345678-9        │
+│                                     │
+│  [ ] Transferencia desde otro RUT   │
+│  RUT alternativo: [____________]    │
+│                                     │
+│  [Cancelar]        [Verificar]      │
+└─────────────────────────────────────┘
 ```
 
 ### 3. Manejar notificacion de verificacion
