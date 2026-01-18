@@ -184,7 +184,12 @@ export function parseExcelBuffer(buffer: Buffer): ParseResult {
       columnMap.forEach((field, colIndex) => {
         const value = row[colIndex];
         if (value !== null && value !== undefined && value !== '') {
-          address[field] = String(value).trim();
+          // isPaid se maneja aparte (puede ser boolean, string o number)
+          if (field === 'isPaid') {
+            (address as any).isPaid = value;
+          } else {
+            address[field] = String(value).trim();
+          }
         }
       });
 
