@@ -10,6 +10,10 @@ export interface AddressFromExcel {
   country?: string;
   customerName?: string;
   customerPhone?: string;
+  customerRut?: string; // RUT del cliente para verificación de transferencias
+  externalOrderId?: string; // num_orden del sistema de gestión
+  paymentMethod?: string; // CASH, CARD, TRANSFER (mododepago)
+  isPaid?: boolean; // si el pedido ya está pagado
   notes?: string;
 }
 
@@ -55,6 +59,22 @@ const columnMappings: Record<string, keyof AddressFromExcel> = {
   'notas': 'notes',
   'observaciones': 'notes',
   'comentarios': 'notes',
+  // Campos de pago y orden
+  'rut': 'customerRut',
+  'rut cliente': 'customerRut',
+  'num_orden': 'externalOrderId',
+  'num orden': 'externalOrderId',
+  'numero orden': 'externalOrderId',
+  'número orden': 'externalOrderId',
+  'orden': 'externalOrderId',
+  'pedido': 'externalOrderId',
+  'mododepago': 'paymentMethod',
+  'modo de pago': 'paymentMethod',
+  'forma de pago': 'paymentMethod',
+  'metodo pago': 'paymentMethod',
+  'método pago': 'paymentMethod',
+  'pagado': 'isPaid',
+  'pago': 'isPaid',
   // Inglés
   'street': 'street',
   'address': 'street',
@@ -77,7 +97,16 @@ const columnMappings: Record<string, keyof AddressFromExcel> = {
   'phone': 'customerPhone',
   'telephone': 'customerPhone',
   'notes': 'notes',
-  'comments': 'notes'
+  'comments': 'notes',
+  // Campos de pago (inglés)
+  'order_id': 'externalOrderId',
+  'order id': 'externalOrderId',
+  'order number': 'externalOrderId',
+  'order': 'externalOrderId',
+  'payment method': 'paymentMethod',
+  'payment_method': 'paymentMethod',
+  'paid': 'isPaid',
+  'is_paid': 'isPaid'
 };
 
 function normalizeColumnName(name: string): string {
@@ -165,6 +194,33 @@ export function parseExcelBuffer(buffer: Buffer): ParseResult {
         continue;
       }
 
+      // Normalizar paymentMethod
+      let paymentMethod = address.paymentMethod?.toUpperCase();
+      if (paymentMethod) {
+        // Mapear valores comunes
+        if (paymentMethod.includes('TRANSFER') || paymentMethod.includes('TRANSF')) {
+          paymentMethod = 'TRANSFER';
+        } else if (paymentMethod.includes('EFECT') || paymentMethod.includes('CASH')) {
+          paymentMethod = 'CASH';
+        } else if (paymentMethod.includes('TARJ') || paymentMethod.includes('CARD')) {
+          paymentMethod = 'CARD';
+        }
+      }
+
+      // Normalizar isPaid
+      let isPaid = false;
+      const paidValue = address.isPaid as any;
+      if (paidValue !== undefined && paidValue !== null) {
+        if (typeof paidValue === 'boolean') {
+          isPaid = paidValue;
+        } else if (typeof paidValue === 'string') {
+          const lower = paidValue.toLowerCase().trim();
+          isPaid = lower === 'si' || lower === 'sí' || lower === 'yes' || lower === '1' || lower === 'true';
+        } else if (typeof paidValue === 'number') {
+          isPaid = paidValue === 1;
+        }
+      }
+
       addresses.push({
         street: address.street,
         number: address.number,
@@ -175,6 +231,10 @@ export function parseExcelBuffer(buffer: Buffer): ParseResult {
         country: address.country || 'Chile',
         customerName: address.customerName,
         customerPhone: address.customerPhone,
+        customerRut: address.customerRut,
+        externalOrderId: address.externalOrderId,
+        paymentMethod,
+        isPaid,
         notes: address.notes
       });
     }

@@ -38,6 +38,9 @@ const createAddressSchema = z.object({
   country: z.string().default('México'),
   customerName: z.string().optional(),
   customerPhone: z.string().optional(),
+  customerRut: z.string().optional(), // RUT del cliente para verificación de transferencias
+  externalOrderId: z.string().optional(), // num_orden del sistema de gestión
+  paymentMethod: z.string().optional(), // CASH, CARD, TRANSFER
   notes: z.string().optional(),
   latitude: z.number().optional(),
   longitude: z.number().optional()
@@ -223,9 +226,12 @@ router.post('/import-excel', requireRole('ADMIN', 'OPERATOR'), upload.single('fi
             city: addr.city,
             state: addr.state,
             postalCode: addr.postalCode,
-            country: addr.country || 'México',
+            country: addr.country || 'Chile',
             customerName: addr.customerName,
             customerPhone: addr.customerPhone,
+            customerRut: addr.customerRut,
+            externalOrderId: addr.externalOrderId,
+            paymentMethod: addr.paymentMethod,
             notes: addr.notes,
             fullAddress,
             geocodeStatus: 'PENDING',

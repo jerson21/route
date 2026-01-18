@@ -207,24 +207,24 @@ router.get('/pending', requireRole('ADMIN', 'OPERATOR'), async (req: Request, re
 
 /**
  * POST /payments/:id/verify
- * Verificación manual por conductor - llama a Lambda
+ * Verificación manual por conductor - llama a endpoint PHP de gestión
  * El conductor presiona "Validar" en la app Android
  *
  * Body opcional:
  * - customerRut: RUT alternativo si la transferencia fue desde otro RUT
- * - amount: Monto alternativo si difiere del registrado
  */
 router.post('/:id/verify', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const { customerRut: alternativeRut, amount: alternativeAmount } = req.body;
+    const { customerRut: alternativeRut } = req.body;
 
     const payment = await prisma.payment.findUnique({
       where: { id },
       include: {
         stop: {
           include: {
-            route: { select: { assignedToId: true } }
+            route: { select: { assignedToId: true } },
+            address: { select: { externalOrderId: true, customerRut: true } }
           }
         }
       }
@@ -247,88 +247,122 @@ router.post('/:id/verify', async (req: Request, res: Response, next: NextFunctio
       throw new AppError(400, 'Solo se pueden verificar pagos por transferencia');
     }
 
-    // Usar RUT alternativo si se proporciona, sino el del pago
-    const rutToVerify = alternativeRut || payment.customerRut;
+    // Obtener num_orden de la parada o dirección
+    const numOrden = payment.stop.externalOrderId || payment.stop.address?.externalOrderId;
+    if (!numOrden) {
+      throw new AppError(400, 'Esta parada no tiene número de orden vinculado');
+    }
+
+    // Usar RUT alternativo si se proporciona, sino el del pago o dirección
+    const rutToVerify = alternativeRut || payment.customerRut || payment.stop.address?.customerRut;
     if (!rutToVerify) {
       throw new AppError(400, 'Se requiere RUT para verificar. Proporciona customerRut en el body.');
     }
 
-    // Usar monto alternativo si se proporciona
-    const amountToVerify = alternativeAmount || Number(payment.amount);
+    // Llamar a endpoint PHP de gestión
+    const phpEndpoint = process.env.PAYMENT_VERIFICATION_PHP_URL;
 
-    // Llamar a Lambda para verificar
-    const lambdaUrl = process.env.PAYMENT_VERIFICATION_LAMBDA_URL;
-
-    if (!lambdaUrl) {
-      console.error('[Payment Verify] PAYMENT_VERIFICATION_LAMBDA_URL not configured');
+    if (!phpEndpoint) {
+      console.error('[Payment Verify] PAYMENT_VERIFICATION_PHP_URL not configured');
       throw new AppError(500, 'Servicio de verificación no configurado');
     }
 
-    console.log(`[Payment Verify] Verificando RUT=${rutToVerify}, monto=${amountToVerify}`);
+    console.log(`[Payment Verify] Verificando num_orden=${numOrden}, RUT=${rutToVerify}`);
 
     try {
-      const lambdaResponse = await fetch(lambdaUrl, {
+      // Construir form-data para PHP
+      const formData = new URLSearchParams();
+      formData.append('opcion', 'validacion');
+      formData.append('num_orden', numOrden);
+      formData.append('rut', rutToVerify);
+      formData.append('origen', 'gestion');
+
+      const phpResponse = await fetch(phpEndpoint, {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'X-Api-Key': process.env.PAYMENT_VERIFICATION_API_KEY || ''
+          'Content-Type': 'application/x-www-form-urlencoded'
         },
-        body: JSON.stringify({
-          customerRut: rutToVerify,
-          amount: amountToVerify
-        })
+        body: formData
       });
 
-      const lambdaResult = await lambdaResponse.json() as {
-        found: boolean;
-        transactionId?: string;
-        bankReference?: string;
+      const result = await phpResponse.json() as {
+        ok: boolean;
+        message: string;
+        codigo?: string;
+        pago_completo?: boolean;
+        total_pedido?: number;
+        total_pagado?: number;
+        monto_faltante?: number;
+        data?: {
+          id: string;
+          monto: number;
+          banco: string;
+          nombre: string;
+        };
       };
 
-      if (lambdaResult.found) {
-        // Transferencia encontrada - actualizar como verificada
-        // Si se usó RUT alternativo, guardarlo en el pago
-        await prisma.$transaction([
+      console.log(`[Payment Verify] PHP response:`, result);
+
+      if (result.ok) {
+        // Transferencia encontrada y procesada en sistema PHP
+        // Solo marcar como VERIFIED si el pago está completo
+        const paymentStatus = result.pago_completo ? 'VERIFIED' : 'PENDING';
+
+        const updates: any[] = [
           prisma.payment.update({
             where: { id },
             data: {
-              status: 'VERIFIED',
-              customerRut: rutToVerify, // Guardar el RUT que realmente se usó
-              transactionId: lambdaResult.transactionId || null,
-              bankReference: lambdaResult.bankReference || null,
-              verifiedAt: new Date(),
-              verifiedBy: 'driver',
-              notes: alternativeRut
-                ? `${payment.notes || ''} [Verificado con RUT alternativo: ${alternativeRut}]`.trim()
-                : payment.notes
-            }
-          }),
-          prisma.stop.update({
-            where: { id: payment.stopId },
-            data: {
-              isPaid: true,
-              paymentStatus: 'PAID',
-              paidAt: new Date()
+              status: paymentStatus,
+              customerRut: rutToVerify,
+              transactionId: result.data?.id || null,
+              bankReference: result.data?.banco || null,
+              verifiedAt: result.pago_completo ? new Date() : null,
+              verifiedBy: result.pago_completo ? 'php_endpoint' : null,
+              notes: result.pago_completo
+                ? `Pago completo. Monto: ${result.data?.monto}`
+                : `Pago parcial. Pagado: ${result.total_pagado}/${result.total_pedido}`
             }
           })
-        ]);
+        ];
+
+        // Solo marcar stop como pagado si pago completo
+        if (result.pago_completo) {
+          updates.push(
+            prisma.stop.update({
+              where: { id: payment.stopId },
+              data: {
+                isPaid: true,
+                paymentStatus: 'PAID',
+                paidAt: new Date()
+              }
+            })
+          );
+        }
+
+        await prisma.$transaction(updates);
 
         res.json({
           success: true,
-          verified: true,
+          verified: result.pago_completo,
+          pago_completo: result.pago_completo,
+          total_pedido: result.total_pedido,
+          total_pagado: result.total_pagado,
+          monto_faltante: result.monto_faltante,
+          message: result.message,
           usedAlternativeRut: !!alternativeRut,
-          message: 'Transferencia verificada correctamente'
+          data: result.data
         });
       } else {
-        // Transferencia no encontrada
+        // Transferencia no encontrada o error
         res.json({
           success: true,
           verified: false,
-          message: 'Transferencia no encontrada. El cliente debe verificar en su portal.'
+          message: result.message,
+          codigo: result.codigo
         });
       }
     } catch (fetchError) {
-      console.error('[Payment Verify] Error calling Lambda:', fetchError);
+      console.error('[Payment Verify] Error calling PHP endpoint:', fetchError);
       throw new AppError(502, 'Error al conectar con servicio de verificación');
     }
   } catch (error) {

@@ -112,6 +112,9 @@ model Address {
   isManualLocation Boolean       @default(false) @map("is_manual_location")
   customerName     String?       @map("customer_name")
   customerPhone    String?       @map("customer_phone")
+  customerRut      String?       @map("customer_rut") // RUT del cliente
+  externalOrderId  String?       @map("external_order_id") // num_orden del sistema de gestión
+  paymentMethod    String?       @map("payment_method") // CASH, CARD, TRANSFER
   notes            String?
   createdById      String        @map("created_by_id")
   createdAt        DateTime      @default(now()) @map("created_at")
@@ -207,10 +210,11 @@ model Stop {
   proofEnabled     Boolean @default(true) @map("proof_enabled")
 
   // Order information
-  clientName   String? @map("client_name")
-  packageCount Int     @default(1) @map("package_count")
-  products     String? // JSON string of products
-  externalId   String? @map("external_id")
+  clientName      String? @map("client_name")
+  packageCount    Int     @default(1) @map("package_count")
+  products        String? // JSON string of products
+  externalId      String? @map("external_id")
+  externalOrderId String? @map("external_order_id") // num_orden del sistema de gestión
   barcodeIds   String? @map("barcode_ids") // Comma separated
   sellerName   String? @map("seller_name")
   orderNotes   String? @map("order_notes")
