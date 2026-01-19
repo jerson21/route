@@ -10,6 +10,7 @@ import { depotRoutes } from './routes/depot.routes.js';
 import { settingsRoutes } from './routes/settings.routes.js';
 import { uploadsRoutes } from './routes/uploads.routes.js';
 import { paymentsRoutes } from './routes/payments.routes.js';
+import { apiKeysRoutes } from './routes/apikeys.routes.js';
 
 const app = express();
 
@@ -76,6 +77,7 @@ app.use('/api/v1/depots', depotRoutes);
 app.use('/api/v1/settings', settingsRoutes);
 app.use('/api/v1/uploads', uploadsRoutes);
 app.use('/api/v1/payments', paymentsRoutes);
+app.use('/api/v1/api-keys', apiKeysRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);
