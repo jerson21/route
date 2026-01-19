@@ -346,6 +346,10 @@ model Depot {
   defaultDepartureTime  String @default("08:00") @map("default_departure_time") // HH:mm format
   defaultServiceMinutes Int    @default(15) @map("default_service_minutes")
 
+  // ETA window configuration (for customer notifications)
+  etaWindowBefore Int @default(30) @map("eta_window_before") // Minutes before ETA
+  etaWindowAfter  Int @default(30) @map("eta_window_after")  // Minutes after ETA
+
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 

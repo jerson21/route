@@ -13,6 +13,8 @@ interface Depot {
   isActive: boolean;
   defaultDepartureTime: string;
   defaultServiceMinutes: number;
+  etaWindowBefore: number;
+  etaWindowAfter: number;
 }
 
 interface Driver {
@@ -68,6 +70,8 @@ export function SettingsPage() {
   const [selectedPlace, setSelectedPlace] = useState<{address: string; lat: number; lng: number} | null>(null);
   const [departureTime, setDepartureTime] = useState('08:00');
   const [serviceMinutes, setServiceMinutes] = useState(15);
+  const [depotEtaWindowBefore, setDepotEtaWindowBefore] = useState(30);
+  const [depotEtaWindowAfter, setDepotEtaWindowAfter] = useState(30);
   const [savingDepot, setSavingDepot] = useState(false);
 
   // Webhook state
@@ -322,7 +326,9 @@ export function SettingsPage() {
         longitude: selectedPlace.lng,
         isDefault: depots.length === 0,
         defaultDepartureTime: departureTime,
-        defaultServiceMinutes: serviceMinutes
+        defaultServiceMinutes: serviceMinutes,
+        etaWindowBefore: depotEtaWindowBefore,
+        etaWindowAfter: depotEtaWindowAfter
       });
       await fetchDepots();
       setShowAddDepot(false);
@@ -342,7 +348,9 @@ export function SettingsPage() {
       await api.put(`/depots/${editingDepot.id}`, {
         name: newDepotName || editingDepot.name,
         defaultDepartureTime: departureTime,
-        defaultServiceMinutes: serviceMinutes
+        defaultServiceMinutes: serviceMinutes,
+        etaWindowBefore: depotEtaWindowBefore,
+        etaWindowAfter: depotEtaWindowAfter
       });
       await fetchDepots();
       setEditingDepot(null);
@@ -359,6 +367,8 @@ export function SettingsPage() {
     setNewDepotName(depot.name);
     setDepartureTime(depot.defaultDepartureTime || '08:00');
     setServiceMinutes(depot.defaultServiceMinutes || 15);
+    setDepotEtaWindowBefore(depot.etaWindowBefore ?? 30);
+    setDepotEtaWindowAfter(depot.etaWindowAfter ?? 30);
   };
 
   const resetDepotForm = () => {
@@ -366,6 +376,8 @@ export function SettingsPage() {
     setSelectedPlace(null);
     setDepartureTime('08:00');
     setServiceMinutes(15);
+    setDepotEtaWindowBefore(30);
+    setDepotEtaWindowAfter(30);
   };
 
   const handleSetDefault = async (id: string) => {
@@ -1204,6 +1216,39 @@ export function SettingsPage() {
                   />
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Ventana ETA antes (min)
+                  </label>
+                  <input
+                    type="number"
+                    value={depotEtaWindowBefore}
+                    onChange={(e) => setDepotEtaWindowBefore(parseInt(e.target.value) || 30)}
+                    min={5}
+                    max={120}
+                    step={5}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Ventana ETA despues (min)
+                  </label>
+                  <input
+                    type="number"
+                    value={depotEtaWindowAfter}
+                    onChange={(e) => setDepotEtaWindowAfter(parseInt(e.target.value) || 30)}
+                    min={5}
+                    max={120}
+                    step={5}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">
+                Ventana para notificaciones: Llegara entre (ETA - antes) y (ETA + despues)
+              </p>
             </div>
             <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
               <button
@@ -1282,6 +1327,39 @@ export function SettingsPage() {
                   />
                 </div>
               </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Ventana ETA antes (min)
+                  </label>
+                  <input
+                    type="number"
+                    value={depotEtaWindowBefore}
+                    onChange={(e) => setDepotEtaWindowBefore(parseInt(e.target.value) || 30)}
+                    min={5}
+                    max={120}
+                    step={5}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Ventana ETA despues (min)
+                  </label>
+                  <input
+                    type="number"
+                    value={depotEtaWindowAfter}
+                    onChange={(e) => setDepotEtaWindowAfter(parseInt(e.target.value) || 30)}
+                    min={5}
+                    max={120}
+                    step={5}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                </div>
+              </div>
+              <p className="text-xs text-gray-500">
+                Ventana para notificaciones: Llegara entre (ETA - antes) y (ETA + despues)
+              </p>
             </div>
             <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
               <button

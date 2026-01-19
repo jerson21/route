@@ -23,6 +23,8 @@ interface Stop {
   travelMinutesFromPrevious?: number;
   timeWindowStart?: string;
   timeWindowEnd?: string;
+  etaWindowStart?: string; // Ventana redondeada para notificaciones
+  etaWindowEnd?: string;   // Ventana redondeada para notificaciones
   priority?: number;
   // Payment fields
   isPaid?: boolean;
@@ -1819,6 +1821,12 @@ export function RouteDetailPage() {
                             {originalArrival && !simulatedDepartureTime && (
                               <span className="text-xs text-gray-400" title="Hora planificada al iniciar ruta">
                                 Plan: {originalArrival.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })}
+                              </span>
+                            )}
+                            {/* Ventana ETA redondeada para notificaciones */}
+                            {stop.etaWindowStart && stop.etaWindowEnd && (
+                              <span className="text-xs text-blue-500" title="Ventana para notificaciones al cliente">
+                                {new Date(stop.etaWindowStart).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })} - {new Date(stop.etaWindowEnd).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', hour12: false })}
                               </span>
                             )}
                             {/* Indicador de retraso/adelanto */}

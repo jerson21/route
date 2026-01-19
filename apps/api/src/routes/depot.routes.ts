@@ -16,7 +16,9 @@ const createDepotSchema = z.object({
   longitude: z.number(),
   isDefault: z.boolean().optional(),
   defaultDepartureTime: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).optional().default('08:00'),
-  defaultServiceMinutes: z.number().min(1).max(120).optional().default(15)
+  defaultServiceMinutes: z.number().min(1).max(120).optional().default(15),
+  etaWindowBefore: z.number().min(5).max(120).optional().default(30),
+  etaWindowAfter: z.number().min(5).max(120).optional().default(30)
 });
 
 const updateDepotSchema = z.object({
@@ -27,7 +29,9 @@ const updateDepotSchema = z.object({
   isDefault: z.boolean().optional(),
   isActive: z.boolean().optional(),
   defaultDepartureTime: z.string().regex(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).optional(),
-  defaultServiceMinutes: z.number().min(1).max(120).optional()
+  defaultServiceMinutes: z.number().min(1).max(120).optional(),
+  etaWindowBefore: z.number().min(5).max(120).optional(),
+  etaWindowAfter: z.number().min(5).max(120).optional()
 });
 
 // GET /depots - List all depots

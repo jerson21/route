@@ -19,6 +19,7 @@ import { getWebhookConfig, getNotificationConfig } from './settings.routes.js';
 import { addRouteConnection, removeRouteConnection, broadcastToRoute, sendHeartbeat } from '../services/sse.service.js';
 import * as notificationService from '../services/notification.service.js';
 import { geocodeAddress } from '../services/geocoding.service.js';
+import { calculateEtaWindow, formatTimeHHMM } from '../utils/timeUtils.js';
 
 const router = Router();
 
@@ -314,7 +315,7 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
       include: {
         createdBy: { select: { id: true, firstName: true, lastName: true } },
         assignedTo: { select: { id: true, firstName: true, lastName: true, phone: true } },
-        depot: { select: { id: true, name: true, address: true, latitude: true, longitude: true, defaultDepartureTime: true, defaultServiceMinutes: true } },
+        depot: { select: { id: true, name: true, address: true, latitude: true, longitude: true, defaultDepartureTime: true, defaultServiceMinutes: true, etaWindowBefore: true, etaWindowAfter: true } },
         stops: {
           include: { address: true },
           orderBy: { sequenceOrder: 'asc' }
@@ -331,7 +332,33 @@ router.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
       throw new AppError(403, 'No tienes acceso a esta ruta');
     }
 
-    res.json({ success: true, data: route });
+    // Calculate ETA window for each stop using depot configuration
+    const windowBefore = route.depot?.etaWindowBefore ?? 30;
+    const windowAfter = route.depot?.etaWindowAfter ?? 30;
+
+    const stopsWithEtaWindow = route.stops.map(stop => {
+      if (stop.estimatedArrival) {
+        const { etaWindowStart, etaWindowEnd } = calculateEtaWindow(
+          stop.estimatedArrival,
+          windowBefore,
+          windowAfter
+        );
+        return {
+          ...stop,
+          etaWindowStart,
+          etaWindowEnd
+        };
+      }
+      return stop;
+    });
+
+    res.json({
+      success: true,
+      data: {
+        ...route,
+        stops: stopsWithEtaWindow
+      }
+    });
   } catch (error) {
     next(error);
   }
@@ -2676,19 +2703,38 @@ router.post('/import', requireRole('ADMIN', 'OPERATOR'), async (req: Request, re
 
     console.log(`[IMPORT] Starting import of route "${routeData.name}" with ${stopsData.length} stops`);
 
-    // 1. Create the route
+    // 1. Get depot - use provided depotId or default to first available depot
+    let depotId = routeData.depotId || null;
+    let depot = null;
+
+    if (depotId) {
+      depot = await prisma.depot.findUnique({ where: { id: depotId } });
+    } else {
+      // No depot specified - use first available depot as default
+      depot = await prisma.depot.findFirst({ orderBy: { createdAt: 'asc' } });
+      if (depot) {
+        depotId = depot.id;
+        console.log(`[IMPORT] No depot specified, using default: "${depot.name}" (serviceMinutes: ${depot.defaultServiceMinutes})`);
+      }
+    }
+
+    // 2. Create the route with depot data
     const route = await prisma.route.create({
       data: {
         name: routeData.name,
         description: routeData.description,
         scheduledDate: routeData.scheduledDate ? new Date(routeData.scheduledDate) : null,
-        depotId: routeData.depotId || null,
+        depotId: depotId,
+        // Set origin from depot if available
+        originLatitude: depot?.latitude || null,
+        originLongitude: depot?.longitude || null,
+        originAddress: depot?.address || null,
         createdById: req.user!.id,
         status: 'DRAFT',
       },
     });
 
-    console.log(`[IMPORT] Route created with ID: ${route.id}`);
+    console.log(`[IMPORT] Route created with ID: ${route.id}, depot: ${depot?.name || 'none'}`);
 
     // 2. Process each stop: geocode addresses and create stops
     const stopResults: Array<{
