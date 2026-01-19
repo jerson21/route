@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
+import { Trash2, Loader2 } from 'lucide-react';
 import { api } from '../../services/api';
+import { useAuthStore } from '../../store/authStore';
 import type { User, UserRole } from '@route-optimizer/shared';
 
 const roleLabels: Record<UserRole, string> = {
@@ -15,8 +17,10 @@ const roleColors: Record<UserRole, string> = {
 };
 
 export function UsersPage() {
+  const { user: currentUser } = useAuthStore();
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [deletingUserId, setDeletingUserId] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(false);
   const [newUser, setNewUser] = useState({
     email: '',
@@ -61,6 +65,20 @@ export function UsersPage() {
     }
   };
 
+  const handleDeleteUser = async (userId: string, userName: string) => {
+    if (!confirm(`¿Desactivar usuario "${userName}"? El usuario ya no podrá acceder al sistema.`)) return;
+
+    try {
+      setDeletingUserId(userId);
+      await api.delete(`/users/${userId}`);
+      fetchUsers();
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'Error al desactivar usuario');
+    } finally {
+      setDeletingUserId(null);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -99,6 +117,7 @@ export function UsersPage() {
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rol</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Estado</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Último acceso</th>
+              <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase">Acciones</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-200">
@@ -125,6 +144,23 @@ export function UsersPage() {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString('es-MX') : 'Nunca'}
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap text-center">
+                  {/* No mostrar botón para el usuario actual ni para usuarios ya inactivos */}
+                  {user.id !== currentUser?.id && user.isActive && (
+                    <button
+                      onClick={() => handleDeleteUser(user.id, `${user.firstName} ${user.lastName}`)}
+                      disabled={deletingUserId === user.id}
+                      className="text-gray-400 hover:text-red-600 disabled:opacity-50"
+                      title="Desactivar usuario"
+                    >
+                      {deletingUserId === user.id ? (
+                        <Loader2 className="w-5 h-5 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-5 h-5" />
+                      )}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}

@@ -7,7 +7,8 @@ import { StopDetailPanel } from '../../components/stops/StopDetailPanel';
 import { ToastContainer, useToast } from '../../components/ui/Toast';
 import {
   MapPin, User, Play, CheckCircle, Trash2, ArrowLeft,
-  Plus, Database, Search, X, GripVertical, Navigation, Loader2, Edit2, ChevronDown, Home, Check, Clock, AlertTriangle, Truck, Send, MessageCircle
+  Plus, Database, Search, X, GripVertical, Navigation, Loader2, Edit2, ChevronDown, Home, Check, Clock, AlertTriangle, Truck, Send, MessageCircle,
+  Banknote, CreditCard, Coins, DollarSign
 } from 'lucide-react';
 
 interface Stop {
@@ -23,6 +24,11 @@ interface Stop {
   timeWindowStart?: string;
   timeWindowEnd?: string;
   priority?: number;
+  // Payment fields
+  isPaid?: boolean;
+  paymentStatus?: string; // PENDING, PAID, PARTIAL, CANCELLED
+  paymentMethod?: string; // CASH, CARD, TRANSFER, ONLINE
+  paymentAmount?: number;
   address: {
     id: string;
     fullAddress: string;
@@ -562,20 +568,6 @@ export function RouteDetailPage() {
     }
   };
 
-  const handleDeleteRoute = async () => {
-    if (!confirm('¿Estás seguro de eliminar esta ruta?')) return;
-
-    try {
-      setActionLoading(true);
-      await api.delete(`/routes/${id}`);
-      navigate('/routes');
-    } catch (err: any) {
-      addToast(err.response?.data?.error || 'Error al eliminar ruta', 'error');
-    } finally {
-      setActionLoading(false);
-    }
-  };
-
   const handleUpdateName = async () => {
     if (!newName.trim()) return;
 
@@ -586,6 +578,21 @@ export function RouteDetailPage() {
       addToast('Nombre actualizado', 'success');
     } catch (err: any) {
       addToast(err.response?.data?.error || 'Error al actualizar nombre', 'error');
+    }
+  };
+
+  const handleDeleteRoute = async () => {
+    if (!confirm('¿Eliminar esta ruta? Esta acción no se puede deshacer.')) return;
+
+    try {
+      setActionLoading(true);
+      await api.delete(`/routes/${id}`);
+      addToast('Ruta eliminada', 'success');
+      navigate('/routes');
+    } catch (err: any) {
+      addToast(err.response?.data?.error || 'Error al eliminar ruta', 'error');
+    } finally {
+      setActionLoading(false);
     }
   };
 
@@ -1109,12 +1116,23 @@ export function RouteDetailPage() {
               <div className="flex-1 flex items-center gap-2">
                 <h1 className="text-lg font-semibold text-gray-900">{route.name}</h1>
                 {isDraft && (
-                  <button
-                    onClick={() => { setNewName(route.name); setEditingName(true); }}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    <Edit2 className="w-4 h-4" />
-                  </button>
+                  <>
+                    <button
+                      onClick={() => { setNewName(route.name); setEditingName(true); }}
+                      className="text-gray-400 hover:text-gray-600"
+                      title="Editar nombre"
+                    >
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={handleDeleteRoute}
+                      disabled={actionLoading}
+                      className="text-gray-400 hover:text-red-600 disabled:opacity-50"
+                      title="Eliminar ruta"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </>
                 )}
               </div>
             )}
@@ -1677,6 +1695,40 @@ export function RouteDetailPage() {
                       </div>
                       {stop.address.customerName && (
                         <p className="text-xs text-gray-500 mt-0.5">{stop.address.customerName}</p>
+                      )}
+                      {/* Payment info */}
+                      {(stop.paymentMethod || stop.paymentAmount) && (
+                        <div className="flex items-center gap-2 mt-1">
+                          {stop.paymentMethod && (
+                            <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded ${
+                              stop.paymentMethod === 'TRANSFER' ? 'bg-blue-50 text-blue-700' :
+                              stop.paymentMethod === 'CASH' ? 'bg-green-50 text-green-700' :
+                              stop.paymentMethod === 'CARD' ? 'bg-purple-50 text-purple-700' :
+                              'bg-gray-50 text-gray-700'
+                            }`}>
+                              {stop.paymentMethod === 'TRANSFER' && <Banknote className="w-3 h-3" />}
+                              {stop.paymentMethod === 'CASH' && <Coins className="w-3 h-3" />}
+                              {stop.paymentMethod === 'CARD' && <CreditCard className="w-3 h-3" />}
+                              {stop.paymentMethod === 'ONLINE' && <DollarSign className="w-3 h-3" />}
+                              {stop.paymentMethod === 'TRANSFER' ? 'Transf.' :
+                               stop.paymentMethod === 'CASH' ? 'Efectivo' :
+                               stop.paymentMethod === 'CARD' ? 'Tarjeta' :
+                               stop.paymentMethod === 'ONLINE' ? 'Online' : stop.paymentMethod}
+                            </span>
+                          )}
+                          {stop.paymentAmount && (
+                            <span className="text-xs text-gray-600 font-medium">
+                              ${stop.paymentAmount.toLocaleString('es-CL')}
+                            </span>
+                          )}
+                          <span className={`px-1.5 py-0.5 text-xs rounded ${
+                            stop.isPaid
+                              ? 'bg-green-100 text-green-700'
+                              : 'bg-yellow-100 text-yellow-700'
+                          }`}>
+                            {stop.isPaid ? 'Pagado' : 'Pendiente'}
+                          </span>
+                        </div>
                       )}
                     </div>
 
