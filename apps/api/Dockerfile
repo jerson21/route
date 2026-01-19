@@ -37,4 +37,5 @@ RUN npm run build
 
 EXPOSE 3001
 
-CMD ["npm", "start"]
+# Ejecutar migracion automatica y luego iniciar
+CMD ["sh", "-c", "npx prisma db push --schema ../../prisma/schema.prisma --skip-generate && npm start"]
