@@ -381,6 +381,216 @@ router.post('/', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Res
   }
 });
 
+// Schema para crear ruta completa con paradas
+const createCompleteRouteSchema = z.object({
+  // Datos de la ruta
+  name: z.string().min(3),
+  description: z.string().optional(),
+  scheduledDate: z.string().datetime().optional(),
+  depotId: z.string().uuid().optional(),
+  assignedToId: z.string().uuid().optional(), // Asignar conductor directamente
+  // Paradas con datos de dirección inline
+  stops: z.array(z.object({
+    // Datos de dirección (obligatorios)
+    street: z.string().min(3),
+    city: z.string().min(2),
+    // Datos de dirección (opcionales)
+    number: z.string().optional(),
+    unit: z.string().optional(),
+    state: z.string().optional(),
+    postalCode: z.string().optional(),
+    country: z.string().default('Chile'),
+    latitude: z.number().optional(),
+    longitude: z.number().optional(),
+    // Datos del cliente
+    customerName: z.string().optional(),
+    customerPhone: z.string().optional(),
+    customerRut: z.string().optional(),
+    // Datos del pedido
+    externalOrderId: z.string().optional(), // num_orden del sistema de gestión
+    products: z.string().optional(), // JSON string o descripción de productos
+    packageCount: z.number().default(1),
+    orderNotes: z.string().optional(),
+    // Pago
+    paymentMethod: z.enum(['CASH', 'CARD', 'TRANSFER']).optional(),
+    paymentAmount: z.number().optional(),
+    isPaid: z.boolean().default(false),
+    // Configuración de parada
+    estimatedMinutes: z.number().default(15),
+    requireSignature: z.boolean().default(false),
+    requirePhoto: z.boolean().default(false),
+    timeWindowStart: z.string().datetime().optional(),
+    timeWindowEnd: z.string().datetime().optional()
+  })).min(1)
+});
+
+// POST /routes/create-complete - Crear ruta con paradas en una sola llamada
+// Este endpoint es ideal para integraciones externas (PHP, etc.)
+router.post('/create-complete', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = createCompleteRouteSchema.parse(req.body);
+
+    // Obtener datos del depot si se proporciona
+    let depotData: {
+      depotId?: string;
+      originAddress?: string;
+      originLatitude?: number;
+      originLongitude?: number;
+    } = {};
+    if (data.depotId) {
+      const depot = await prisma.depot.findUnique({ where: { id: data.depotId } });
+      if (depot) {
+        depotData = {
+          depotId: depot.id,
+          originAddress: depot.address,
+          originLatitude: depot.latitude,
+          originLongitude: depot.longitude
+        };
+      }
+    }
+
+    // Crear todo en una transacción
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Crear la ruta
+      const route = await tx.route.create({
+        data: {
+          name: data.name,
+          description: data.description,
+          scheduledDate: data.scheduledDate ? new Date(data.scheduledDate) : null,
+          assignedToId: data.assignedToId,
+          createdById: req.user!.id,
+          ...depotData
+        }
+      });
+
+      // 2. Crear direcciones y paradas
+      const stopsWithAddresses = [];
+      for (let i = 0; i < data.stops.length; i++) {
+        const stopData = data.stops[i];
+
+        // Construir fullAddress
+        const fullAddress = [
+          stopData.street,
+          stopData.number,
+          stopData.unit,
+          stopData.city,
+          stopData.state,
+          stopData.country
+        ].filter(Boolean).join(', ');
+
+        // Crear dirección
+        const address = await tx.address.create({
+          data: {
+            street: stopData.street,
+            number: stopData.number,
+            unit: stopData.unit,
+            city: stopData.city,
+            state: stopData.state,
+            postalCode: stopData.postalCode,
+            country: stopData.country,
+            fullAddress,
+            latitude: stopData.latitude,
+            longitude: stopData.longitude,
+            geocodeStatus: stopData.latitude && stopData.longitude ? 'SUCCESS' : 'PENDING',
+            customerName: stopData.customerName,
+            customerPhone: stopData.customerPhone,
+            customerRut: stopData.customerRut,
+            externalOrderId: stopData.externalOrderId,
+            paymentMethod: stopData.paymentMethod,
+            createdById: req.user!.id
+          }
+        });
+
+        // Crear parada
+        const stop = await tx.stop.create({
+          data: {
+            routeId: route.id,
+            addressId: address.id,
+            sequenceOrder: i + 1,
+            // Datos del pedido
+            externalOrderId: stopData.externalOrderId,
+            products: stopData.products,
+            packageCount: stopData.packageCount,
+            orderNotes: stopData.orderNotes,
+            clientName: stopData.customerName,
+            recipientName: stopData.customerName,
+            recipientPhone: stopData.customerPhone,
+            // Pago
+            paymentMethod: stopData.paymentMethod,
+            paymentAmount: stopData.paymentAmount,
+            isPaid: stopData.isPaid,
+            paymentStatus: stopData.isPaid ? 'PAID' : 'PENDING',
+            // Configuración
+            estimatedMinutes: stopData.estimatedMinutes,
+            requireSignature: stopData.requireSignature,
+            requirePhoto: stopData.requirePhoto,
+            timeWindowStart: stopData.timeWindowStart ? new Date(stopData.timeWindowStart) : null,
+            timeWindowEnd: stopData.timeWindowEnd ? new Date(stopData.timeWindowEnd) : null
+          },
+          include: { address: true }
+        });
+
+        stopsWithAddresses.push(stop);
+      }
+
+      return { route, stops: stopsWithAddresses };
+    });
+
+    // Geocodificar direcciones sin coordenadas en background
+    const addressesWithoutCoords = result.stops
+      .filter(s => !s.address.latitude || !s.address.longitude)
+      .map(s => s.address);
+
+    if (addressesWithoutCoords.length > 0) {
+      // Geocodificar en background (no bloquea la respuesta)
+      Promise.all(
+        addressesWithoutCoords.map(async (addr) => {
+          try {
+            const coords = await geocodeAddress(addr.fullAddress);
+            if (coords) {
+              await prisma.address.update({
+                where: { id: addr.id },
+                data: {
+                  latitude: coords.lat,
+                  longitude: coords.lng,
+                  geocodeStatus: 'SUCCESS'
+                }
+              });
+            }
+          } catch (e) {
+            console.error(`Error geocoding address ${addr.id}:`, e);
+          }
+        })
+      ).catch(console.error);
+    }
+
+    // Obtener ruta completa para la respuesta
+    const completeRoute = await prisma.route.findUnique({
+      where: { id: result.route.id },
+      include: {
+        depot: { select: { id: true, name: true, address: true, latitude: true, longitude: true } },
+        assignedTo: { select: { id: true, firstName: true, lastName: true } },
+        stops: {
+          include: { address: true },
+          orderBy: { sequenceOrder: 'asc' }
+        },
+        _count: { select: { stops: true } }
+      }
+    });
+
+    res.status(201).json({
+      success: true,
+      data: completeRoute,
+      message: `Ruta creada con ${result.stops.length} paradas`
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return next(new AppError(400, error.errors[0].message));
+    }
+    next(error);
+  }
+});
+
 // POST /routes/:id/stops - Add stops to route
 router.post('/:id/stops', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -2387,15 +2597,22 @@ const importStopSchema = z.object({
   customer: z.object({
     name: z.string().optional(),
     phone: z.string().optional(),
-    externalId: z.string().optional(), // RUT, código agencia, etc.
+    externalId: z.string().optional(), // RUT del cliente
+    rut: z.string().optional(), // RUT (alias más claro)
   }).optional(),
   order: z.object({
-    orderId: z.string(), // num_orden o AGENCIA-codigo
+    orderId: z.string(), // num_orden o AGENCIA-codigo - se usa para verificar pagos con PHP
     products: z.array(z.string()).optional(),
     notes: z.string().optional(),
     sellerName: z.string().optional(), // RespaldosChile - DOMICILIO/AGENCIA
     packageCount: z.number().optional(),
   }),
+  // Payment information
+  payment: z.object({
+    method: z.enum(['CASH', 'CARD', 'TRANSFER']).optional(), // Método de pago
+    amount: z.number().optional(), // Monto a cobrar
+    isPaid: z.boolean().default(false), // Ya está pagado?
+  }).optional(),
   // Optional time window
   timeWindowStart: z.string().optional(), // HH:mm format
   timeWindowEnd: z.string().optional(),
@@ -2505,6 +2722,9 @@ router.post('/import', requireRole('ADMIN', 'OPERATOR'), async (req: Request, re
               geocodeStatus: geocodeSuccess ? 'SUCCESS' : 'FAILED',
               customerName: stopData.customer?.name,
               customerPhone: stopData.customer?.phone,
+              customerRut: stopData.customer?.rut || stopData.customer?.externalId, // RUT del cliente
+              externalOrderId: stopData.order.orderId, // num_orden para verificación PHP
+              paymentMethod: stopData.payment?.method,
               createdById: req.user!.id,
             }
           });
@@ -2554,10 +2774,16 @@ router.post('/import', requireRole('ADMIN', 'OPERATOR'), async (req: Request, re
             clientName: stopData.customer?.name,
             // Order info
             externalId: stopData.order.orderId,
+            externalOrderId: stopData.order.orderId, // num_orden para verificación PHP
             products: stopData.order.products ? JSON.stringify(stopData.order.products) : null,
             orderNotes: stopData.order.notes,
             sellerName: stopData.order.sellerName,
             packageCount: stopData.order.packageCount || 1,
+            // Payment info
+            paymentMethod: stopData.payment?.method,
+            paymentAmount: stopData.payment?.amount,
+            isPaid: stopData.payment?.isPaid || false,
+            paymentStatus: stopData.payment?.isPaid ? 'PAID' : 'PENDING',
             // Time window
             timeWindowStart,
             timeWindowEnd,
@@ -2614,20 +2840,65 @@ router.post('/import', requireRole('ADMIN', 'OPERATOR'), async (req: Request, re
       console.log(`[IMPORT] Route assigned to driver: ${options.assignToDriverId}`);
     }
 
-    // 6. Return response with mapping
+    // 6. Fetch complete route with stops for response
+    const completeRoute = await prisma.route.findUnique({
+      where: { id: route.id },
+      include: {
+        stops: {
+          orderBy: { sequenceOrder: 'asc' },
+          include: {
+            address: {
+              select: {
+                id: true,
+                fullAddress: true,
+                unit: true,
+                latitude: true,
+                longitude: true,
+                customerName: true,
+                customerPhone: true,
+                customerRut: true,
+                externalOrderId: true,
+              }
+            }
+          }
+        },
+        depot: {
+          select: { id: true, name: true, address: true }
+        },
+        assignedTo: {
+          select: { id: true, firstName: true, lastName: true }
+        }
+      }
+    });
+
+    // 7. Return response in format expected by PHP
     res.status(201).json({
       success: true,
       data: {
-        routeId: route.id,
-        routeName: route.name,
+        id: route.id,              // ID de la ruta para guardar en rutas.id_routes_api
+        name: route.name,
         externalId: routeData.externalId,
         status: options?.assignToDriverId ? 'SCHEDULED' : 'DRAFT',
-        stops: stopResults,
+        depot: completeRoute?.depot,
+        assignedTo: completeRoute?.assignedTo,
+        stops: completeRoute?.stops.map((stop, index) => ({
+          id: stop.id,             // ID de la parada para guardar en rutas_paradas.id_routes_api
+          position: index + 1,
+          externalOrderId: stop.externalOrderId,  // num_orden original
+          status: stop.status,
+          paymentStatus: stop.paymentStatus,
+          isPaid: stop.isPaid,
+          address: stop.address
+        })) || [],
         summary: {
           total: stopsData.length,
           created: successCount,
           failed: failedCount,
           geocodeFailed: geocodeFailedCount,
+        },
+        // Mantener stopResults para debugging si es necesario
+        _debug: {
+          stopResults: stopResults
         }
       }
     });
