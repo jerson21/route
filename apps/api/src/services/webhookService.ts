@@ -1,4 +1,5 @@
 import crypto from 'crypto';
+import { calculateEtaWindow } from '../utils/timeUtils.js';
 
 // Webhook event types
 export type WebhookEventType =
@@ -177,7 +178,7 @@ export interface WebhookStopWithWindowPayload extends WebhookStopPayload {
   etaWindowEnd?: string;   // ISO datetime - latest expected arrival
 }
 
-// Helper to build stop payload with ETA window
+// Helper to build stop payload with ETA window (rounded to 10-minute intervals)
 export function buildStopWithWindowPayload(
   stop: {
     id: string;
@@ -191,8 +192,8 @@ export function buildStopWithWindowPayload(
     recipientEmail?: string | null;
     address: { fullAddress: string };
   },
-  etaWindowBefore: number = 20,
-  etaWindowAfter: number = 60
+  etaWindowBefore: number = 30,
+  etaWindowAfter: number = 30
 ): WebhookStopWithWindowPayload {
   const basePayload = buildStopPayload(stop);
 
@@ -200,11 +201,12 @@ export function buildStopWithWindowPayload(
   const etaDate = stop.originalEstimatedArrival || stop.estimatedArrival;
 
   if (etaDate) {
-    const etaTime = etaDate.getTime();
+    // Use the rounding function for professional display (e.g., 16:00 - 17:00 instead of 16:03 - 17:23)
+    const { etaWindowStart, etaWindowEnd } = calculateEtaWindow(etaDate, etaWindowBefore, etaWindowAfter);
     return {
       ...basePayload,
-      etaWindowStart: new Date(etaTime - etaWindowBefore * 60000).toISOString(),
-      etaWindowEnd: new Date(etaTime + etaWindowAfter * 60000).toISOString(),
+      etaWindowStart: etaWindowStart.toISOString(),
+      etaWindowEnd: etaWindowEnd.toISOString(),
     };
   }
 

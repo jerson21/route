@@ -11,7 +11,9 @@
       "Bash(pnpm --filter api exec prisma migrate dev:*)",
       "Bash(pnpm --filter api exec prisma generate --schema ../../prisma/schema.prisma)",
       "Bash(pnpm add:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }

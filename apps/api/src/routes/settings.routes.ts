@@ -256,8 +256,8 @@ export async function getNotificationConfig(): Promise<{ etaWindowBefore: number
   const config = setting?.value as { etaWindowBefore?: number; etaWindowAfter?: number } | null;
 
   return {
-    etaWindowBefore: config?.etaWindowBefore ?? 20,
-    etaWindowAfter: config?.etaWindowAfter ?? 60
+    etaWindowBefore: config?.etaWindowBefore ?? 30,
+    etaWindowAfter: config?.etaWindowAfter ?? 30
   };
 }
 
