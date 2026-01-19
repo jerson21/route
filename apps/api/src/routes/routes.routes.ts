@@ -547,12 +547,12 @@ router.post('/create-complete', requireRole('ADMIN', 'OPERATOR'), async (req: Re
         addressesWithoutCoords.map(async (addr) => {
           try {
             const coords = await geocodeAddress(addr.fullAddress);
-            if (coords) {
+            if (coords.success && coords.latitude && coords.longitude) {
               await prisma.address.update({
                 where: { id: addr.id },
                 data: {
-                  latitude: coords.lat,
-                  longitude: coords.lng,
+                  latitude: coords.latitude,
+                  longitude: coords.longitude,
                   geocodeStatus: 'SUCCESS'
                 }
               });
