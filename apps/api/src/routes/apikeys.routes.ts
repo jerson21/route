@@ -24,7 +24,7 @@ const AVAILABLE_PERMISSIONS = [
 const createApiKeySchema = z.object({
   name: z.string().min(3).max(100),
   permissions: z.array(z.string()).default(['addresses:write', 'routes:read']),
-  expiresInDays: z.number().optional() // null = no expira
+  expiresInDays: z.number().nullable().optional() // null = no expira
 });
 
 const updateApiKeySchema = z.object({
