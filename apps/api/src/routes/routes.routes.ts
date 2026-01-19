@@ -1367,10 +1367,9 @@ function generateOptimizationHash(stops: any[]): string {
 // POST /routes/:id/optimize - Optimize route with time windows
 router.post('/:id/optimize', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { driverStartTime, driverEndTime, force, firstStopId, lastStopId, useHaversine } = req.body;
+    const { driverStartTime, driverEndTime, force, firstStopId, lastStopId, useHaversine: useHaversineParam } = req.body;
 
     console.log(`[OPTIMIZE] Request received for route ${req.params.id}`);
-    console.log(`[OPTIMIZE] Mode: ${useHaversine ? 'Haversine (GRATIS)' : 'Google Matrix API'}`);
     console.log(`[OPTIMIZE] Request body:`, JSON.stringify(req.body, null, 2));
     console.log(`[OPTIMIZE] firstStopId from body:`, firstStopId, `(type: ${typeof firstStopId})`);
     console.log(`[OPTIMIZE] lastStopId from body:`, lastStopId, `(type: ${typeof lastStopId})`);
@@ -1451,6 +1450,20 @@ router.post('/:id/optimize', requireRole('ADMIN', 'OPERATOR'), async (req: Reque
     if (validStops.length < 1) {
       throw new AppError(400, 'No hay suficientes paradas con coordenadas válidas (mínimo 1 después de excluir el origen)');
     }
+
+    // Auto-switch to Haversine for routes with many stops to avoid Distance Matrix API limits
+    // Google Distance Matrix API limit: 100 elements per request (origins × destinations)
+    // For N stops + depot: (N+1)² elements. 10 stops = 121 elements > 100 limit
+    const MAX_STOPS_FOR_GOOGLE_MATRIX = 9;
+    let useHaversine = useHaversineParam;
+
+    if (useHaversine === undefined && validStops.length > MAX_STOPS_FOR_GOOGLE_MATRIX) {
+      useHaversine = true;
+      console.log(`[OPTIMIZE] Auto-switching to Haversine mode: ${validStops.length} stops exceeds Google Matrix limit (${MAX_STOPS_FOR_GOOGLE_MATRIX})`);
+    }
+
+    console.log(`[OPTIMIZE] Mode: ${useHaversine ? 'Haversine (GRATIS)' : 'Google Matrix API'}`);
+    console.log(`[OPTIMIZE] Stops count: ${validStops.length}`);
 
     const apiKey = process.env.GOOGLE_MAPS_API_KEY;
     if (!apiKey) {
