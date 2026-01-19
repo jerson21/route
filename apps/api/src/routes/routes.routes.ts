@@ -2572,18 +2572,39 @@ router.post('/:id/duplicate', requireRole('ADMIN', 'OPERATOR'), async (req: Requ
 });
 
 // DELETE /routes/:id
+// Si la ruta no está en DRAFT, requiere adminPassword para eliminar
 router.delete('/:id', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const { adminPassword } = req.body;
+    const FORCE_DELETE_PASSWORD = process.env.ROUTE_DELETE_PASSWORD || '123';
+
     const route = await prisma.route.findUnique({
-      where: { id: req.params.id }
+      where: { id: req.params.id },
+      include: {
+        stops: { select: { id: true } }
+      }
     });
 
     if (!route) {
       throw new AppError(404, 'Ruta no encontrada');
     }
 
+    // Si no es DRAFT, requiere clave de admin
     if (route.status !== 'DRAFT') {
-      throw new AppError(400, 'Solo se pueden eliminar rutas en borrador');
+      if (!adminPassword) {
+        throw new AppError(400, 'Se requiere clave de administrador para eliminar rutas que no están en borrador');
+      }
+      if (adminPassword !== FORCE_DELETE_PASSWORD) {
+        throw new AppError(403, 'Clave de administrador incorrecta');
+      }
+      console.log(`[DELETE ROUTE] Force delete authorized by ${req.user?.email} for route ${route.id} (status: ${route.status})`);
+    }
+
+    // Eliminar paradas primero (por FK constraint)
+    if (route.stops.length > 0) {
+      await prisma.stop.deleteMany({
+        where: { routeId: route.id }
+      });
     }
 
     await prisma.route.delete({

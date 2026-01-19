@@ -214,6 +214,11 @@ export function RouteDetailPage() {
   const [isSimulating, setIsSimulating] = useState(false);
   const simulationRef = useRef<{ cancel: boolean }>({ cancel: false });
 
+  // Delete route confirmation modal (requires admin password for non-DRAFT routes)
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteAdminPassword, setDeleteAdminPassword] = useState('');
+  const [deletingRoute, setDeletingRoute] = useState(false);
+
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
   const fetchRoute = async (silent = false) => {
@@ -581,18 +586,33 @@ export function RouteDetailPage() {
     }
   };
 
-  const handleDeleteRoute = async () => {
-    if (!confirm('¿Eliminar esta ruta? Esta acción no se puede deshacer.')) return;
+  const handleDeleteRoute = () => {
+    if (!route) return;
 
+    // Si es DRAFT, eliminar directamente con confirmación simple
+    if (route.status === 'DRAFT') {
+      if (!confirm('¿Eliminar esta ruta? Esta acción no se puede deshacer.')) return;
+      executeDeleteRoute();
+    } else {
+      // Si no es DRAFT, mostrar modal que pide clave de admin
+      setDeleteAdminPassword('');
+      setShowDeleteModal(true);
+    }
+  };
+
+  const executeDeleteRoute = async (adminPassword?: string) => {
     try {
-      setActionLoading(true);
-      await api.delete(`/routes/${id}`);
+      setDeletingRoute(true);
+      await api.delete(`/routes/${id}`, {
+        data: adminPassword ? { adminPassword } : undefined
+      });
       addToast('Ruta eliminada', 'success');
+      setShowDeleteModal(false);
       navigate('/routes');
     } catch (err: any) {
       addToast(err.response?.data?.error || 'Error al eliminar ruta', 'error');
     } finally {
-      setActionLoading(false);
+      setDeletingRoute(false);
     }
   };
 
@@ -1116,24 +1136,22 @@ export function RouteDetailPage() {
               <div className="flex-1 flex items-center gap-2">
                 <h1 className="text-lg font-semibold text-gray-900">{route.name}</h1>
                 {isDraft && (
-                  <>
-                    <button
-                      onClick={() => { setNewName(route.name); setEditingName(true); }}
-                      className="text-gray-400 hover:text-gray-600"
-                      title="Editar nombre"
-                    >
-                      <Edit2 className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={handleDeleteRoute}
-                      disabled={actionLoading}
-                      className="text-gray-400 hover:text-red-600 disabled:opacity-50"
-                      title="Eliminar ruta"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
-                  </>
+                  <button
+                    onClick={() => { setNewName(route.name); setEditingName(true); }}
+                    className="text-gray-400 hover:text-gray-600"
+                    title="Editar nombre"
+                  >
+                    <Edit2 className="w-4 h-4" />
+                  </button>
                 )}
+                <button
+                  onClick={handleDeleteRoute}
+                  disabled={deletingRoute}
+                  className="text-gray-400 hover:text-red-600 disabled:opacity-50"
+                  title="Eliminar ruta"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
               </div>
             )}
             <span className={`px-2 py-1 text-xs font-medium rounded-full ${statusColors[route.status]}`}>
@@ -1879,8 +1897,8 @@ export function RouteDetailPage() {
 
         {/* Footer Actions */}
         <div className="px-4 py-3 border-t border-gray-200 bg-gray-50">
-          {isDraft && (
-            <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            {isDraft && (
               <button
                 onClick={() => setShowAssignModal(true)}
                 disabled={actionLoading || route.stops.length === 0}
@@ -1889,21 +1907,21 @@ export function RouteDetailPage() {
                 <User className="w-4 h-4" />
                 Asignar y Programar
               </button>
-              <button
-                onClick={handleDeleteRoute}
-                disabled={actionLoading}
-                className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
-                title="Eliminar ruta"
-              >
-                <Trash2 className="w-5 h-5" />
-              </button>
-            </div>
-          )}
-          {route.status !== 'DRAFT' && route.assignedTo && (
-            <div className="text-sm text-gray-600">
-              Asignado a: <span className="font-medium">{route.assignedTo.firstName} {route.assignedTo.lastName}</span>
-            </div>
-          )}
+            )}
+            {route.status !== 'DRAFT' && route.assignedTo && (
+              <div className="flex-1 text-sm text-gray-600">
+                Asignado a: <span className="font-medium">{route.assignedTo.firstName} {route.assignedTo.lastName}</span>
+              </div>
+            )}
+            <button
+              onClick={handleDeleteRoute}
+              disabled={deletingRoute}
+              className="p-2 text-red-600 hover:bg-red-50 rounded-lg"
+              title="Eliminar ruta"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -2415,6 +2433,62 @@ export function RouteDetailPage() {
                 {sendingMessage && <Loader2 className="w-4 h-4 animate-spin" />}
                 <Send className="w-4 h-4" />
                 Enviar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Route Confirmation Modal (for non-DRAFT routes) */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-sm">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center">
+                  <Trash2 className="w-5 h-5 text-red-600" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900">Eliminar Ruta</h3>
+                  <p className="text-sm text-gray-500">Esta ruta está {statusLabels[route?.status || 'DRAFT']?.toLowerCase()}</p>
+                </div>
+              </div>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-gray-600">
+                Para eliminar una ruta que no está en borrador, ingresa la clave de administrador:
+              </p>
+              <input
+                type="password"
+                value={deleteAdminPassword}
+                onChange={(e) => setDeleteAdminPassword(e.target.value)}
+                placeholder="Clave de administrador"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-red-500 focus:border-transparent"
+                autoFocus
+                onKeyPress={(e) => e.key === 'Enter' && deleteAdminPassword && executeDeleteRoute(deleteAdminPassword)}
+              />
+              <p className="text-xs text-red-500">
+                Esta acción eliminará la ruta y todas sus paradas permanentemente.
+              </p>
+            </div>
+            <div className="px-6 py-4 border-t border-gray-200 flex gap-2">
+              <button
+                onClick={() => {
+                  setShowDeleteModal(false);
+                  setDeleteAdminPassword('');
+                }}
+                disabled={deletingRoute}
+                className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => executeDeleteRoute(deleteAdminPassword)}
+                disabled={!deleteAdminPassword || deletingRoute}
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 text-sm font-medium disabled:opacity-50"
+              >
+                {deletingRoute && <Loader2 className="w-4 h-4 animate-spin" />}
+                Eliminar
               </button>
             </div>
           </div>
