@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MapPin, Plus, Trash2, Check, Loader2, Clock, Edit2, Webhook, Send, Eye, EyeOff, Bell, Users, Package, Navigation, Smartphone } from 'lucide-react';
+import { MapPin, Plus, Trash2, Check, Loader2, Clock, Edit2, Webhook, Send, Eye, EyeOff, Bell, Users, Package, Navigation, Smartphone, Key, Copy, CheckCircle } from 'lucide-react';
 import { api } from '../../services/api';
 import { AddressSearch } from '../../components/search/AddressSearch';
 
@@ -33,7 +33,18 @@ interface DriverPreferences {
   arrivalAlertIntrusive: boolean;
 }
 
-type SettingsSection = 'depots' | 'notifications' | 'webhook' | 'drivers' | 'delivery';
+interface ApiKeyItem {
+  id: string;
+  name: string;
+  keyPrefix: string;
+  permissions: string[];
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+  isActive: boolean;
+  createdAt: string;
+}
+
+type SettingsSection = 'depots' | 'notifications' | 'webhook' | 'drivers' | 'delivery' | 'apikeys';
 
 const menuItems: { id: SettingsSection; label: string; icon: typeof MapPin; description: string }[] = [
   { id: 'depots', label: 'Depots', icon: MapPin, description: 'Puntos de salida' },
@@ -41,6 +52,7 @@ const menuItems: { id: SettingsSection; label: string; icon: typeof MapPin; desc
   { id: 'delivery', label: 'Entregas', icon: Package, description: 'POD por defecto' },
   { id: 'notifications', label: 'Notificaciones', icon: Bell, description: 'Ventana ETA' },
   { id: 'webhook', label: 'Webhook', icon: Webhook, description: 'Integraciones' },
+  { id: 'apikeys', label: 'API Keys', icon: Key, description: 'Acceso externo' },
 ];
 
 export function SettingsPage() {
@@ -86,6 +98,17 @@ export function SettingsPage() {
   const [defaultProofEnabled, setDefaultProofEnabled] = useState(true);
   const [defaultServiceMinutes, setDefaultServiceMinutes] = useState(15);
   const [savingDeliveryDefaults, setSavingDeliveryDefaults] = useState(false);
+
+  // API Keys state
+  const [apiKeys, setApiKeys] = useState<ApiKeyItem[]>([]);
+  const [loadingApiKeys, setLoadingApiKeys] = useState(false);
+  const [showCreateApiKey, setShowCreateApiKey] = useState(false);
+  const [newApiKeyName, setNewApiKeyName] = useState('');
+  const [newApiKeyPermissions, setNewApiKeyPermissions] = useState<string[]>(['addresses:write', 'routes:read']);
+  const [newApiKeyExpiresDays, setNewApiKeyExpiresDays] = useState<number | null>(null);
+  const [creatingApiKey, setCreatingApiKey] = useState(false);
+  const [createdApiKey, setCreatedApiKey] = useState<string | null>(null);
+  const [copiedKey, setCopiedKey] = useState(false);
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
@@ -199,12 +222,82 @@ export function SettingsPage() {
     }
   };
 
+  // Fetch API keys
+  const fetchApiKeys = async () => {
+    try {
+      setLoadingApiKeys(true);
+      const response = await api.get('/api-keys');
+      setApiKeys(response.data.data);
+    } catch (error) {
+      console.error('Error fetching API keys:', error);
+    } finally {
+      setLoadingApiKeys(false);
+    }
+  };
+
+  // Create API key
+  const handleCreateApiKey = async () => {
+    if (!newApiKeyName) return;
+    try {
+      setCreatingApiKey(true);
+      const response = await api.post('/api-keys', {
+        name: newApiKeyName,
+        permissions: newApiKeyPermissions,
+        expiresInDays: newApiKeyExpiresDays
+      });
+      setCreatedApiKey(response.data.data.key);
+      await fetchApiKeys();
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'Error al crear API key');
+    } finally {
+      setCreatingApiKey(false);
+    }
+  };
+
+  // Delete API key
+  const handleDeleteApiKey = async (id: string) => {
+    if (!confirm('Revocar esta API Key? Los sistemas que la usen dejaran de funcionar.')) return;
+    try {
+      await api.delete(`/api-keys/${id}`);
+      await fetchApiKeys();
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'Error al eliminar');
+    }
+  };
+
+  // Toggle API key active status
+  const handleToggleApiKey = async (id: string, isActive: boolean) => {
+    try {
+      await api.put(`/api-keys/${id}`, { isActive: !isActive });
+      await fetchApiKeys();
+    } catch (error: any) {
+      alert(error.response?.data?.error || 'Error al actualizar');
+    }
+  };
+
+  // Copy to clipboard
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedKey(true);
+    setTimeout(() => setCopiedKey(false), 2000);
+  };
+
+  // Close create modal and reset
+  const closeCreateModal = () => {
+    setShowCreateApiKey(false);
+    setCreatedApiKey(null);
+    setNewApiKeyName('');
+    setNewApiKeyPermissions(['addresses:write', 'routes:read']);
+    setNewApiKeyExpiresDays(null);
+  };
+
   useEffect(() => {
     fetchDepots();
     fetchWebhookSettings();
     fetchNotificationSettings();
     fetchDrivers();
     fetchDeliveryDefaults();
+    fetchApiKeys();
   }, []);
 
   // Load preferences when driver selected
@@ -890,6 +983,119 @@ export function SettingsPage() {
     </div>
   );
 
+  const renderApiKeysSection = () => (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">API Keys</h2>
+          <p className="text-sm text-gray-500">Gestiona acceso para integraciones externas</p>
+        </div>
+        <button
+          onClick={() => setShowCreateApiKey(true)}
+          className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium"
+        >
+          <Plus className="w-4 h-4" />
+          Nueva API Key
+        </button>
+      </div>
+
+      {loadingApiKeys ? (
+        <div className="p-8 text-center">
+          <Loader2 className="w-6 h-6 animate-spin mx-auto text-gray-400" />
+        </div>
+      ) : apiKeys.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+          <Key className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+          <p className="text-gray-500 mb-4">No hay API keys configuradas</p>
+          <button
+            onClick={() => setShowCreateApiKey(true)}
+            className="text-blue-600 hover:text-blue-700 font-medium"
+          >
+            Crear tu primera API key
+          </button>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-200">
+          {apiKeys.map((key) => (
+            <div key={key.id} className="px-6 py-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
+                    key.isActive ? 'bg-green-100' : 'bg-gray-100'
+                  }`}>
+                    <Key className={`w-5 h-5 ${key.isActive ? 'text-green-600' : 'text-gray-400'}`} />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium text-gray-900">{key.name}</span>
+                      {!key.isActive && (
+                        <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-xs rounded-full">
+                          Inactiva
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-sm text-gray-500 font-mono">{key.keyPrefix}...</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => handleToggleApiKey(key.id, key.isActive)}
+                    className={`p-2 rounded-lg ${
+                      key.isActive
+                        ? 'text-yellow-600 hover:bg-yellow-50'
+                        : 'text-green-600 hover:bg-green-50'
+                    }`}
+                    title={key.isActive ? 'Desactivar' : 'Activar'}
+                  >
+                    {key.isActive ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  </button>
+                  <button
+                    onClick={() => handleDeleteApiKey(key.id)}
+                    className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg"
+                    title="Eliminar"
+                  >
+                    <Trash2 className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {(key.permissions as string[]).map((perm) => (
+                  <span
+                    key={perm}
+                    className="px-2 py-1 bg-blue-50 text-blue-700 text-xs rounded-full"
+                  >
+                    {perm}
+                  </span>
+                ))}
+              </div>
+              <div className="mt-2 text-xs text-gray-400 flex items-center gap-4">
+                <span>Creada: {new Date(key.createdAt).toLocaleDateString('es-CL')}</span>
+                {key.lastUsedAt && (
+                  <span>Ultimo uso: {new Date(key.lastUsedAt).toLocaleDateString('es-CL')}</span>
+                )}
+                {key.expiresAt && (
+                  <span className={new Date(key.expiresAt) < new Date() ? 'text-red-500' : ''}>
+                    Expira: {new Date(key.expiresAt).toLocaleDateString('es-CL')}
+                  </span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="bg-gray-50 rounded-lg p-4">
+        <h4 className="font-medium text-gray-900 mb-2">Como usar:</h4>
+        <p className="text-sm text-gray-600 mb-2">
+          Incluye la API key en el header de tus requests:
+        </p>
+        <code className="block bg-gray-800 text-green-400 p-3 rounded-lg text-sm overflow-x-auto">
+          X-API-Key: route_xxxxxxxxxxxxx
+        </code>
+      </div>
+    </div>
+  );
+
   return (
     <div className="h-full flex bg-gray-50">
       {/* Panel Izquierdo - Lista de configuraciones */}
@@ -927,6 +1133,7 @@ export function SettingsPage() {
           {activeSection === 'delivery' && renderDeliverySection()}
           {activeSection === 'notifications' && renderNotificationsSection()}
           {activeSection === 'webhook' && renderWebhookSection()}
+          {activeSection === 'apikeys' && renderApiKeysSection()}
         </div>
       </div>
 
@@ -1094,6 +1301,160 @@ export function SettingsPage() {
                 {savingDepot && <Loader2 className="w-4 h-4 animate-spin" />}
                 Guardar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Create API Key Modal */}
+      {showCreateApiKey && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl w-full max-w-lg">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold">
+                {createdApiKey ? 'API Key Creada' : 'Nueva API Key'}
+              </h3>
+            </div>
+
+            {createdApiKey ? (
+              // Show created key (only shown once)
+              <div className="p-6 space-y-4">
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                  <p className="text-sm text-yellow-800 font-medium mb-2">
+                    Guarda esta API key en un lugar seguro. No se mostrara de nuevo.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Tu API Key:
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-gray-100 px-4 py-3 rounded-lg font-mono text-sm break-all">
+                      {createdApiKey}
+                    </code>
+                    <button
+                      onClick={() => copyToClipboard(createdApiKey)}
+                      className={`p-3 rounded-lg transition-colors ${
+                        copiedKey
+                          ? 'bg-green-100 text-green-600'
+                          : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+                      }`}
+                      title="Copiar"
+                    >
+                      {copiedKey ? <CheckCircle className="w-5 h-5" /> : <Copy className="w-5 h-5" />}
+                    </button>
+                  </div>
+                  {copiedKey && (
+                    <p className="text-sm text-green-600 mt-2">Copiado al portapapeles</p>
+                  )}
+                </div>
+                <div className="bg-gray-50 rounded-lg p-4">
+                  <p className="text-sm text-gray-600">
+                    Usa esta key en el header <code className="bg-gray-200 px-1 rounded">X-API-Key</code> de tus requests.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              // Create form
+              <div className="p-6 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Nombre
+                  </label>
+                  <input
+                    type="text"
+                    value={newApiKeyName}
+                    onChange={(e) => setNewApiKeyName(e.target.value)}
+                    placeholder="Ej: Integracion Intranet"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">Un nombre descriptivo para identificar esta key</p>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Permisos
+                  </label>
+                  <div className="space-y-2">
+                    {[
+                      { value: 'addresses:read', label: 'Leer direcciones' },
+                      { value: 'addresses:write', label: 'Crear/editar/eliminar direcciones' },
+                      { value: 'routes:read', label: 'Leer rutas y paradas' },
+                      { value: 'routes:write', label: 'Crear/editar/eliminar rutas' },
+                      { value: 'users:read', label: 'Leer usuarios' },
+                      { value: '*', label: 'Acceso completo (todos los permisos)' },
+                    ].map((perm) => (
+                      <label key={perm.value} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={newApiKeyPermissions.includes(perm.value)}
+                          onChange={(e) => {
+                            if (perm.value === '*') {
+                              // If selecting full access, clear others
+                              setNewApiKeyPermissions(e.target.checked ? ['*'] : []);
+                            } else {
+                              // Remove * if selecting specific permissions
+                              const withoutStar = newApiKeyPermissions.filter(p => p !== '*');
+                              if (e.target.checked) {
+                                setNewApiKeyPermissions([...withoutStar, perm.value]);
+                              } else {
+                                setNewApiKeyPermissions(withoutStar.filter(p => p !== perm.value));
+                              }
+                            }
+                          }}
+                          className="w-4 h-4 text-blue-600 border-gray-300 rounded"
+                        />
+                        <span className="text-sm text-gray-700">{perm.label}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Expiracion (opcional)
+                  </label>
+                  <select
+                    value={newApiKeyExpiresDays || ''}
+                    onChange={(e) => setNewApiKeyExpiresDays(e.target.value ? parseInt(e.target.value) : null)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Sin expiracion</option>
+                    <option value="30">30 dias</option>
+                    <option value="90">90 dias</option>
+                    <option value="180">6 meses</option>
+                    <option value="365">1 ano</option>
+                  </select>
+                </div>
+              </div>
+            )}
+
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3">
+              {createdApiKey ? (
+                <button
+                  onClick={closeCreateModal}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
+                >
+                  Cerrar
+                </button>
+              ) : (
+                <>
+                  <button
+                    onClick={closeCreateModal}
+                    className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    onClick={handleCreateApiKey}
+                    disabled={!newApiKeyName || newApiKeyPermissions.length === 0 || creatingApiKey}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center gap-2"
+                  >
+                    {creatingApiKey && <Loader2 className="w-4 h-4 animate-spin" />}
+                    Crear API Key
+                  </button>
+                </>
+              )}
             </div>
           </div>
         </div>
