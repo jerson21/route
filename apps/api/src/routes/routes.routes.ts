@@ -2464,7 +2464,7 @@ router.post('/:id/stops/:stopId/in-transit', async (req: Request, res: Response,
         route: buildRoutePayload(route),
         driver: buildDriverPayload(route.assignedTo),
         stop: buildStopWithWindowPayload(updatedStop, notifConfig.etaWindowBefore, notifConfig.etaWindowAfter),
-        remainingStops: remainingStops.map(s => buildStopPayload(s)),
+        remainingStops: remainingStops.map(s => buildStopWithWindowPayload(s, notifConfig.etaWindowBefore, notifConfig.etaWindowAfter)),
         metadata: {
           driverLocation: route.driverLatitude && route.driverLongitude ? {
             latitude: route.driverLatitude,
