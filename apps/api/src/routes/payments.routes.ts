@@ -922,19 +922,24 @@ router.post('/:stopId/verify-transfer', async (req: Request, res: Response, next
     }
 
     console.log(`[${requestId}] Llamando a PHP: num_orden=${numOrden}, rut=${rutToVerify}`);
+    console.log(`[${requestId}] PHP endpoint: ${phpEndpoint}`);
 
-    // 5. Llamar a endpoint PHP
+    // 5. Llamar a endpoint PHP con timeout de 30 segundos
     const formData = new URLSearchParams();
     formData.append('opcion', 'validacion');
     formData.append('num_orden', numOrden);
     formData.append('rut', rutToVerify);
     formData.append('origen', 'gestion');
 
+    const startTime = Date.now();
     const phpResponse = await fetch(phpEndpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: formData
+      body: formData,
+      signal: AbortSignal.timeout(30000) // 30 segundos timeout
     });
+    const elapsed = Date.now() - startTime;
+    console.log(`[${requestId}] PHP response received in ${elapsed}ms, status: ${phpResponse.status}`);
 
     const result = await phpResponse.json() as {
       ok: boolean;
@@ -1007,14 +1012,20 @@ router.post('/:stopId/verify-transfer', async (req: Request, res: Response, next
 
       res.json(response);
     }
-  } catch (error) {
-    console.error(`[${requestId}] Error:`, error);
+  } catch (error: any) {
+    console.error(`[${requestId}] Error:`, error?.message || error);
     console.log(`[${requestId}] ========== END VERIFY TRANSFER (ERROR) ==========\n`);
 
     if (error instanceof AppError) {
       return next(error);
     }
-    next(new AppError(502, 'Error al conectar con servicio de verificación'));
+
+    // Manejar timeout específicamente
+    if (error?.name === 'TimeoutError' || error?.code === 'ABORT_ERR') {
+      return next(new AppError(504, 'Timeout: El servicio de verificación no respondió a tiempo (30s)'));
+    }
+
+    next(new AppError(502, `Error al conectar con servicio de verificación: ${error?.message || 'desconocido'}`));
   }
 });
 
