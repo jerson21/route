@@ -936,7 +936,7 @@ router.post('/:stopId/verify-transfer', async (req: Request, res: Response, next
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: formData,
-      signal: AbortSignal.timeout(30000) // 30 segundos timeout
+      signal: AbortSignal.timeout(90000) // 90 segundos timeout (robot bancario puede demorar)
     });
     const elapsed = Date.now() - startTime;
     console.log(`[${requestId}] PHP response received in ${elapsed}ms, status: ${phpResponse.status}`);
@@ -1022,7 +1022,7 @@ router.post('/:stopId/verify-transfer', async (req: Request, res: Response, next
 
     // Manejar timeout específicamente
     if (error?.name === 'TimeoutError' || error?.code === 'ABORT_ERR') {
-      return next(new AppError(504, 'Timeout: El servicio de verificación no respondió a tiempo (30s)'));
+      return next(new AppError(504, 'Timeout: El servicio de verificación no respondió a tiempo (90s)'));
     }
 
     next(new AppError(502, `Error al conectar con servicio de verificación: ${error?.message || 'desconocido'}`));
