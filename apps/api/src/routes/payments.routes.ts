@@ -914,12 +914,14 @@ router.post('/:stopId/verify-transfer', async (req: Request, res: Response, next
       throw new AppError(400, 'Se requiere RUT para verificar. Proporciona customerRut en el body.');
     }
 
-    // Normalizar RUT: quitar puntos/espacios y asegurar formato con guión
-    // Ej: "186930088" → "18693008-8", "18.693.008-8" → "18693008-8"
-    const cleanRut = rawRut.replace(/[.\s]/g, '').toUpperCase();
-    const rutToVerify = cleanRut.includes('-')
-      ? cleanRut
-      : `${cleanRut.slice(0, -1)}-${cleanRut.slice(-1)}`;
+    // Normalizar RUT: formato CON puntos y guión para Lambda
+    // Ej: "186930088" → "18.693.008-8", "18693008-8" → "18.693.008-8"
+    const cleanRut = rawRut.replace(/[.\s-]/g, '').toUpperCase(); // quitar todo
+    const dv = cleanRut.slice(-1); // dígito verificador
+    const body = cleanRut.slice(0, -1); // parte numérica
+    // Formatear con puntos: 18693008 → 18.693.008
+    const formattedBody = body.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    const rutToVerify = `${formattedBody}-${dv}`;
 
     console.log(`[${requestId}] RUT normalizado: "${rawRut}" → "${rutToVerify}"`);
 
