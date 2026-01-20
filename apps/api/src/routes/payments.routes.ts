@@ -975,13 +975,15 @@ router.post('/:stopId/verify-transfer', async (req: Request, res: Response, next
       // Si pago completo, actualizar el stop
       if (result.pago_completo) {
         console.log(`[${requestId}] Pago completo - updating stop...`);
+        // Convertir monto a número (PHP puede devolver string)
+        const amount = Number(result.total_pagado || result.data?.monto) || null;
         await prisma.stop.update({
           where: { id: stopId },
           data: {
             isPaid: true,
             paymentStatus: 'PAID',
             paymentMethod: 'TRANSFER',
-            paymentAmount: result.total_pagado || result.data?.monto,
+            paymentAmount: amount,
             paidAt: new Date(),
             customerRut: rutToVerify,
             paymentNotes: `Verificado via PHP: ${result.data?.banco || ''} - ${result.data?.nombre || ''}`
