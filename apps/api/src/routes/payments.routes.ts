@@ -908,11 +908,20 @@ router.post('/:stopId/verify-transfer', async (req: Request, res: Response, next
     }
 
     // 3. Obtener RUT (del body, stop, o address)
-    const rutToVerify = bodyRut || stop.customerRut || stop.address?.customerRut;
-    if (!rutToVerify) {
+    const rawRut = bodyRut || stop.customerRut || stop.address?.customerRut;
+    if (!rawRut) {
       console.error(`[${requestId}] ERROR: No RUT available`);
       throw new AppError(400, 'Se requiere RUT para verificar. Proporciona customerRut en el body.');
     }
+
+    // Normalizar RUT: quitar puntos/espacios y asegurar formato con guión
+    // Ej: "186930088" → "18693008-8", "18.693.008-8" → "18693008-8"
+    const cleanRut = rawRut.replace(/[.\s]/g, '').toUpperCase();
+    const rutToVerify = cleanRut.includes('-')
+      ? cleanRut
+      : `${cleanRut.slice(0, -1)}-${cleanRut.slice(-1)}`;
+
+    console.log(`[${requestId}] RUT normalizado: "${rawRut}" → "${rutToVerify}"`);
 
     // 4. Verificar que el endpoint PHP está configurado
     const phpEndpoint = process.env.PAYMENT_VERIFICATION_PHP_URL;
