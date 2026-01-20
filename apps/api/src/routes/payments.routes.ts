@@ -337,6 +337,200 @@ router.post('/webhooks/verified', async (req: Request, res: Response, next: Next
 });
 
 // =============================================================================
+// WEBHOOK - Notificación de pago recibido desde PHP (ruta alternativa)
+// =============================================================================
+
+/**
+ * POST /stops/:id/payment-received
+ * Alias para compatibilidad con sistema PHP (Intranet)
+ * PHP llama a esta URL cuando valida un pago en la cartola bancaria
+ *
+ * Headers: X-Webhook-Secret
+ * Body: { amount, transactionId?, customerName?, method?, bankReference? }
+ */
+const paymentReceivedSchema = z.object({
+  amount: z.number().positive('amount debe ser positivo'),
+  transactionId: z.string().optional(),
+  customerName: z.string().optional(),
+  method: z.string().optional().default('TRANSFER'),
+  bankReference: z.string().optional()
+});
+
+router.post('/:id/payment-received', async (req: Request, res: Response, next: NextFunction) => {
+  const requestId = `REQ-${Date.now()}`;
+  const stopId = req.params.id;
+
+  console.log(`\n[${requestId}] ========== PAYMENT RECEIVED (PHP) ==========`);
+  console.log(`[${requestId}] Stop ID: ${stopId}`);
+  console.log(`[${requestId}] Headers:`, JSON.stringify({
+    'content-type': req.headers['content-type'],
+    'x-webhook-secret': req.headers['x-webhook-secret'] ? '***PRESENT***' : 'MISSING'
+  }, null, 2));
+  console.log(`[${requestId}] Body:`, JSON.stringify(req.body, null, 2));
+
+  try {
+    // Verificar secret
+    const webhookSecret = process.env.PAYMENT_WEBHOOK_SECRET;
+    const providedSecret = req.headers['x-webhook-secret'];
+
+    if (!webhookSecret) {
+      console.error(`[${requestId}] ERROR: PAYMENT_WEBHOOK_SECRET not configured`);
+      throw new AppError(500, 'Webhook no configurado');
+    }
+
+    if (providedSecret !== webhookSecret) {
+      console.warn(`[${requestId}] ERROR: Invalid webhook secret`);
+      throw new AppError(401, 'Secret inválido');
+    }
+
+    console.log(`[${requestId}] Secret validation: OK`);
+
+    // Validar body
+    const parseResult = paymentReceivedSchema.safeParse(req.body);
+    if (!parseResult.success) {
+      console.error(`[${requestId}] Validation error:`, parseResult.error.errors);
+      throw new AppError(400, parseResult.error.errors[0].message);
+    }
+
+    const { amount, transactionId, customerName, method, bankReference } = parseResult.data;
+    console.log(`[${requestId}] Parsed data: amount=${amount}, method=${method}, bank=${bankReference}`);
+
+    // Buscar la parada
+    const stop = await prisma.stop.findUnique({
+      where: { id: stopId },
+      include: {
+        route: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            assignedToId: true,
+            assignedTo: {
+              select: { id: true, firstName: true, lastName: true, fcmToken: true }
+            }
+          }
+        },
+        address: {
+          select: { customerName: true, fullAddress: true }
+        }
+      }
+    });
+
+    if (!stop) {
+      console.error(`[${requestId}] ERROR: Stop not found with id=${stopId}`);
+      return res.status(404).json({
+        success: false,
+        requestId,
+        error: 'Parada no encontrada',
+        stopId
+      });
+    }
+
+    console.log(`[${requestId}] Stop found:`, {
+      stopId: stop.id,
+      currentIsPaid: stop.isPaid,
+      routeId: stop.route?.id,
+      routeName: stop.route?.name,
+      driverId: stop.route?.assignedToId
+    });
+
+    // Si ya está pagado, solo informar
+    if (stop.isPaid) {
+      console.log(`[${requestId}] Stop already marked as paid - no update needed`);
+      return res.json({
+        success: true,
+        requestId,
+        alreadyPaid: true,
+        message: 'Esta parada ya estaba marcada como pagada'
+      });
+    }
+
+    // Actualizar la parada
+    console.log(`[${requestId}] Updating stop payment status...`);
+    const updatedStop = await prisma.stop.update({
+      where: { id: stopId },
+      data: {
+        isPaid: true,
+        paymentStatus: 'PAID',
+        paymentMethod: method,
+        paymentAmount: amount,
+        paidAt: new Date(),
+        notes: stop.notes
+          ? `${stop.notes} | Pago verificado: $${amount.toLocaleString('es-CL')} - ${bankReference || transactionId || 'online'}`
+          : `Pago verificado: $${amount.toLocaleString('es-CL')} - ${bankReference || transactionId || 'online'}`
+      }
+    });
+
+    console.log(`[${requestId}] Stop updated:`, {
+      isPaid: updatedStop.isPaid,
+      paymentStatus: updatedStop.paymentStatus,
+      paymentAmount: updatedStop.paymentAmount
+    });
+
+    // Notificar al conductor via push notification
+    let notificationSent = false;
+    const driverId = stop.route?.assignedToId;
+    const displayName = customerName || stop.address?.customerName || 'Cliente';
+
+    if (driverId) {
+      console.log(`[${requestId}] Sending push notification to driver ${driverId}...`);
+
+      notificationSent = await notificationService.sendToUser(driverId, {
+        title: 'Pago verificado',
+        body: `${displayName} - $${amount.toLocaleString('es-CL')} - Solo entrega`,
+        data: {
+          type: 'payment_received',
+          stopId: stopId,
+          routeId: stop.route?.id || '',
+          amount: amount.toString(),
+          transactionId: transactionId || '',
+          bankReference: bankReference || '',
+          timestamp: new Date().toISOString()
+        }
+      });
+
+      console.log(`[${requestId}] Push notification result: ${notificationSent ? 'SENT' : 'FAILED'}`);
+    } else {
+      console.log(`[${requestId}] No driver assigned - skipping notification`);
+    }
+
+    const response = {
+      success: true,
+      requestId,
+      stopId,
+      routeId: stop.route?.id,
+      updated: {
+        isPaid: true,
+        paymentStatus: 'PAID',
+        paymentMethod: method,
+        paymentAmount: amount,
+        paidAt: updatedStop.paidAt
+      },
+      notification: {
+        sent: notificationSent,
+        driverId: driverId || null
+      },
+      message: notificationSent
+        ? 'Pago registrado y conductor notificado'
+        : 'Pago registrado (conductor no notificado - sin FCM token o no asignado)'
+    };
+
+    console.log(`[${requestId}] Response:`, JSON.stringify(response, null, 2));
+    console.log(`[${requestId}] ========== END WEBHOOK ==========\n`);
+
+    res.json(response);
+  } catch (error) {
+    console.error(`[${requestId}] Unhandled error:`, error);
+    console.log(`[${requestId}] ========== END WEBHOOK (ERROR) ==========\n`);
+
+    if (error instanceof z.ZodError) {
+      return next(new AppError(400, error.errors[0].message));
+    }
+    next(error);
+  }
+});
+
+// =============================================================================
 // RUTAS AUTENTICADAS
 // =============================================================================
 

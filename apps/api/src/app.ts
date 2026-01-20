@@ -77,6 +77,7 @@ app.use('/api/v1/depots', depotRoutes);
 app.use('/api/v1/settings', settingsRoutes);
 app.use('/api/v1/uploads', uploadsRoutes);
 app.use('/api/v1/payments', paymentsRoutes);
+app.use('/api/v1/stops', paymentsRoutes);  // Alias para webhook PHP: POST /stops/:id/payment-received
 app.use('/api/v1/api-keys', apiKeysRoutes);
 
 // Error handler (must be last)
