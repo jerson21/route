@@ -833,4 +833,189 @@ router.get('/stop/:stopId', async (req: Request, res: Response, next: NextFuncti
   }
 });
 
+/**
+ * POST /stops/:stopId/verify-transfer
+ * Endpoint simplificado para Android - verifica transferencia directamente con PHP
+ * No requiere crear primero un registro Payment
+ *
+ * Body: { customerRut?: string }  // Opcional si el stop ya tiene RUT
+ *
+ * Flujo:
+ * 1. Busca el stop y obtiene externalOrderId (num_orden)
+ * 2. Obtiene customerRut del body o del stop/address
+ * 3. Llama a PHP validacion_transferencia.php
+ * 4. Si pago_completo=true → actualiza stop como pagado
+ * 5. Retorna resultado a Android
+ */
+router.post('/:stopId/verify-transfer', async (req: Request, res: Response, next: NextFunction) => {
+  const requestId = `VRF-${Date.now()}`;
+  const stopId = req.params.stopId;
+  const { customerRut: bodyRut } = req.body;
+
+  console.log(`\n[${requestId}] ========== VERIFY TRANSFER (Android) ==========`);
+  console.log(`[${requestId}] Stop ID: ${stopId}`);
+  console.log(`[${requestId}] Body RUT: ${bodyRut || '(no proporcionado)'}`);
+  console.log(`[${requestId}] User: ${req.user?.email} (${req.user?.role})`);
+
+  try {
+    // 1. Buscar el stop con sus relaciones
+    const stop = await prisma.stop.findUnique({
+      where: { id: stopId },
+      include: {
+        route: {
+          select: {
+            id: true,
+            assignedToId: true,
+            status: true
+          }
+        },
+        address: {
+          select: {
+            externalOrderId: true,
+            customerRut: true,
+            customerName: true
+          }
+        }
+      }
+    });
+
+    if (!stop) {
+      console.error(`[${requestId}] ERROR: Stop not found`);
+      throw new AppError(404, 'Parada no encontrada');
+    }
+
+    console.log(`[${requestId}] Stop found:`, {
+      stopId: stop.id,
+      externalOrderId: stop.externalOrderId,
+      addressExternalOrderId: stop.address?.externalOrderId,
+      customerRut: stop.customerRut,
+      addressCustomerRut: stop.address?.customerRut,
+      routeId: stop.route?.id,
+      assignedToId: stop.route?.assignedToId
+    });
+
+    // Verificar permisos (solo conductor asignado o admin)
+    if (req.user!.role === 'DRIVER' && stop.route?.assignedToId !== req.user!.id) {
+      console.warn(`[${requestId}] Permission denied: Driver ${req.user!.id} not assigned to route`);
+      throw new AppError(403, 'No tienes permiso para verificar esta parada');
+    }
+
+    // 2. Obtener num_orden
+    const numOrden = stop.externalOrderId || stop.address?.externalOrderId;
+    if (!numOrden) {
+      console.error(`[${requestId}] ERROR: No externalOrderId found`);
+      throw new AppError(400, 'Esta parada no tiene número de orden vinculado (externalOrderId)');
+    }
+
+    // 3. Obtener RUT (del body, stop, o address)
+    const rutToVerify = bodyRut || stop.customerRut || stop.address?.customerRut;
+    if (!rutToVerify) {
+      console.error(`[${requestId}] ERROR: No RUT available`);
+      throw new AppError(400, 'Se requiere RUT para verificar. Proporciona customerRut en el body.');
+    }
+
+    // 4. Verificar que el endpoint PHP está configurado
+    const phpEndpoint = process.env.PAYMENT_VERIFICATION_PHP_URL;
+    if (!phpEndpoint) {
+      console.error(`[${requestId}] ERROR: PAYMENT_VERIFICATION_PHP_URL not configured`);
+      throw new AppError(500, 'Servicio de verificación no configurado');
+    }
+
+    console.log(`[${requestId}] Llamando a PHP: num_orden=${numOrden}, rut=${rutToVerify}`);
+
+    // 5. Llamar a endpoint PHP
+    const formData = new URLSearchParams();
+    formData.append('opcion', 'validacion');
+    formData.append('num_orden', numOrden);
+    formData.append('rut', rutToVerify);
+    formData.append('origen', 'gestion');
+
+    const phpResponse = await fetch(phpEndpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: formData
+    });
+
+    const result = await phpResponse.json() as {
+      ok: boolean;
+      message: string;
+      codigo?: string;
+      pago_completo?: boolean;
+      total_pedido?: number;
+      total_pagado?: number;
+      monto_faltante?: number;
+      data?: {
+        id: string;
+        monto: number;
+        banco: string;
+        nombre: string;
+      };
+    };
+
+    console.log(`[${requestId}] PHP response:`, JSON.stringify(result, null, 2));
+
+    // 6. Procesar respuesta
+    if (result.ok) {
+      // Si pago completo, actualizar el stop
+      if (result.pago_completo) {
+        console.log(`[${requestId}] Pago completo - updating stop...`);
+        await prisma.stop.update({
+          where: { id: stopId },
+          data: {
+            isPaid: true,
+            paymentStatus: 'PAID',
+            paymentMethod: 'TRANSFER',
+            paymentAmount: result.total_pagado || result.data?.monto,
+            paidAt: new Date(),
+            customerRut: rutToVerify,
+            paymentNotes: `Verificado via PHP: ${result.data?.banco || ''} - ${result.data?.nombre || ''}`
+          }
+        });
+        console.log(`[${requestId}] Stop updated successfully`);
+      }
+
+      const response = {
+        success: true,
+        requestId,
+        verified: result.pago_completo,
+        pago_completo: result.pago_completo,
+        total_pedido: result.total_pedido,
+        total_pagado: result.total_pagado,
+        monto_faltante: result.monto_faltante,
+        message: result.message,
+        stopUpdated: result.pago_completo,
+        data: result.data
+      };
+
+      console.log(`[${requestId}] Success response:`, JSON.stringify(response, null, 2));
+      console.log(`[${requestId}] ========== END VERIFY TRANSFER ==========\n`);
+
+      res.json(response);
+    } else {
+      // Transferencia no encontrada o error
+      const response = {
+        success: true,
+        requestId,
+        verified: false,
+        pago_completo: false,
+        message: result.message,
+        codigo: result.codigo
+      };
+
+      console.log(`[${requestId}] Not verified response:`, JSON.stringify(response, null, 2));
+      console.log(`[${requestId}] ========== END VERIFY TRANSFER ==========\n`);
+
+      res.json(response);
+    }
+  } catch (error) {
+    console.error(`[${requestId}] Error:`, error);
+    console.log(`[${requestId}] ========== END VERIFY TRANSFER (ERROR) ==========\n`);
+
+    if (error instanceof AppError) {
+      return next(error);
+    }
+    next(new AppError(502, 'Error al conectar con servicio de verificación'));
+  }
+});
+
 export { router as paymentsRoutes };

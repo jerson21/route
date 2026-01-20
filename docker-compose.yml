@@ -39,6 +39,7 @@ services:
       R2_PUBLIC_URL: ${R2_PUBLIC_URL:-}
       FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
       PAYMENT_WEBHOOK_SECRET: ${PAYMENT_WEBHOOK_SECRET:-}
+      PAYMENT_VERIFICATION_PHP_URL: ${PAYMENT_VERIFICATION_PHP_URL:-https://respaldoschile.cl/validacion_transferencia.php}
     ports:
       - "3002:3002"
     depends_on:
