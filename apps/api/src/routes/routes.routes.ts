@@ -988,6 +988,95 @@ router.post('/:id/start', async (req: Request, res: Response, next: NextFunction
   }
 });
 
+// POST /routes/:id/resend-notifications - Reenviar notificaciones WhatsApp a clientes
+router.post('/:id/resend-notifications', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const routeId = req.params.id;
+
+    // Obtener la ruta con todas sus relaciones
+    const route = await prisma.route.findUnique({
+      where: { id: routeId },
+      include: {
+        depot: true,
+        assignedTo: true,
+        stops: {
+          include: { address: true },
+          orderBy: { sequenceOrder: 'asc' }
+        }
+      }
+    });
+
+    if (!route) {
+      throw new AppError(404, 'Ruta no encontrada');
+    }
+
+    // Solo permitir reenvío en rutas activas (IN_PROGRESS o SCHEDULED con ETAs)
+    if (!['IN_PROGRESS', 'SCHEDULED'].includes(route.status)) {
+      throw new AppError(400, 'Solo se pueden reenviar notificaciones de rutas programadas o en progreso');
+    }
+
+    // Verificar que hay paradas pendientes
+    const pendingStops = route.stops.filter(s => s.status === 'PENDING');
+    if (pendingStops.length === 0) {
+      throw new AppError(400, 'No hay paradas pendientes para notificar');
+    }
+
+    // Verificar que las paradas tienen ETAs calculadas
+    const stopsWithEta = pendingStops.filter(s => s.estimatedArrival || s.originalEstimatedArrival);
+    if (stopsWithEta.length === 0) {
+      throw new AppError(400, 'Las paradas no tienen ETAs calculadas. Optimiza la ruta primero.');
+    }
+
+    // Obtener configuración de webhook
+    const webhookConfig = await getWebhookConfig();
+    if (!webhookConfig.enabled || !webhookConfig.url) {
+      throw new AppError(400, 'Webhook no configurado. Configura la URL del webhook en Settings.');
+    }
+
+    const notifConfig = await getNotificationConfig();
+
+    // Construir payload igual que route.started
+    const payload: WebhookPayload = {
+      event: 'route.started', // Usamos el mismo evento para que PHP lo procese igual
+      timestamp: new Date().toISOString(),
+      route: buildRoutePayload(route),
+      driver: buildDriverPayload(route.assignedTo),
+      remainingStops: stopsWithEta.map(s => buildStopWithWindowPayload(s, notifConfig.etaWindowBefore, notifConfig.etaWindowAfter)),
+      metadata: {
+        totalStops: stopsWithEta.length,
+        etaWindowBefore: notifConfig.etaWindowBefore,
+        etaWindowAfter: notifConfig.etaWindowAfter,
+        isResend: true, // Marcar como reenvío
+        resendBy: req.user!.email,
+        resendAt: new Date().toISOString()
+      }
+    };
+
+    console.log(`[RESEND] Reenviando notificaciones para ruta ${routeId} (${stopsWithEta.length} paradas)`);
+    console.log(`[RESEND] Webhook URL: ${webhookConfig.url}`);
+
+    // Enviar webhook (esperamos la respuesta para informar al usuario)
+    const result = await sendWebhook(webhookConfig.url, payload, webhookConfig.secret);
+
+    if (result.success) {
+      console.log(`[RESEND] Webhook enviado exitosamente`);
+      res.json({
+        success: true,
+        message: `Notificaciones reenviadas a ${stopsWithEta.length} clientes`,
+        data: {
+          stopsNotified: stopsWithEta.length,
+          webhookStatus: result.statusCode
+        }
+      });
+    } else {
+      console.error(`[RESEND] Error enviando webhook: ${result.error}`);
+      throw new AppError(502, `Error al enviar notificaciones: ${result.error}`);
+    }
+  } catch (error) {
+    next(error);
+  }
+});
+
 // POST /routes/:id/complete - Complete route
 router.post('/:id/complete', async (req: Request, res: Response, next: NextFunction) => {
   try {

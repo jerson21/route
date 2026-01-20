@@ -523,6 +523,20 @@ export function RouteDetailPage() {
     }
   };
 
+  const handleResendNotifications = async () => {
+    if (!confirm('¿Reenviar notificaciones WhatsApp a todos los clientes pendientes?')) return;
+
+    try {
+      setActionLoading(true);
+      const response = await api.post(`/routes/${id}/resend-notifications`);
+      addToast(response.data.message || 'Notificaciones reenviadas', 'success');
+    } catch (err: any) {
+      addToast(err.response?.data?.error || 'Error al reenviar notificaciones', 'error');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const handleSendMessage = async () => {
     if (!route?.assignedTo || !messageTitle.trim() || !messageBody.trim()) return;
 
@@ -1404,6 +1418,19 @@ export function RouteDetailPage() {
                 </button>
               )}
             </div>
+          )}
+
+          {/* Botón reenviar notificaciones WhatsApp */}
+          {(route.status === 'IN_PROGRESS' || (route.status === 'SCHEDULED' && route.sentAt)) && (
+            <button
+              onClick={handleResendNotifications}
+              disabled={actionLoading}
+              className="w-full flex items-center justify-center gap-2 px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm disabled:opacity-50"
+              title="Reenviar notificaciones WhatsApp a clientes pendientes"
+            >
+              <MessageCircle className="w-4 h-4" />
+              Reenviar WhatsApp
+            </button>
           )}
         </div>
 
