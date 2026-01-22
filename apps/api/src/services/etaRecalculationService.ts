@@ -10,11 +10,16 @@ import { getWebhookConfig } from '../routes/settings.routes.js';
 
 const prisma = new PrismaClient();
 
+// Threshold for ETA deviation to trigger recalculation (in minutes)
+// If driver arrives within this threshold of the original ETA, skip recalculation
+const DEVIATION_THRESHOLD_MINUTES = 15;
+
 interface RecalculationResult {
   success: boolean;
   updatedStops: number;
   newDepotReturnTime?: Date;
   error?: string;
+  skippedReason?: 'on_time' | 'no_remaining_stops';
 }
 
 /**
@@ -52,6 +57,33 @@ export async function recalculateETAs(
       return { success: false, updatedStops: 0, error: 'Stop not found' };
     }
 
+    // ============ OPTIMIZATION: Only recalculate if significant deviation ============
+    const originalEta = completedStop.originalEstimatedArrival || completedStop.estimatedArrival;
+
+    if (originalEta) {
+      const deviationMinutes = Math.abs(
+        (completedAt.getTime() - originalEta.getTime()) / (1000 * 60)
+      );
+
+      console.log(`[RECALC] Stop completed at ${completedAt.toISOString()}`);
+      console.log(`[RECALC] Original ETA was ${originalEta.toISOString()}`);
+      console.log(`[RECALC] Deviation: ${deviationMinutes.toFixed(1)} minutes (threshold: ${DEVIATION_THRESHOLD_MINUTES} min)`);
+
+      if (deviationMinutes <= DEVIATION_THRESHOLD_MINUTES) {
+        console.log(`[RECALC] Deviation <= ${DEVIATION_THRESHOLD_MINUTES} min - SKIPPING recalculation (saving API calls)`);
+        return {
+          success: true,
+          updatedStops: 0,
+          skippedReason: 'on_time'
+        };
+      }
+
+      console.log(`[RECALC] Deviation > ${DEVIATION_THRESHOLD_MINUTES} min - RECALCULATING all remaining stops`);
+    } else {
+      console.log(`[RECALC] No original ETA found - proceeding with recalculation`);
+    }
+    // =================================================================================
+
     const remainingStops = route.stops.filter(
       s => s.sequenceOrder > completedStop.sequenceOrder &&
            (s.status === StopStatus.PENDING || s.status === StopStatus.IN_TRANSIT)
@@ -76,11 +108,11 @@ export async function recalculateETAs(
             data: { depotReturnTime: returnTime },
           });
 
-          return { success: true, updatedStops: 0, newDepotReturnTime: returnTime };
+          return { success: true, updatedStops: 0, newDepotReturnTime: returnTime, skippedReason: 'no_remaining_stops' };
         }
       }
 
-      return { success: true, updatedStops: 0 };
+      return { success: true, updatedStops: 0, skippedReason: 'no_remaining_stops' };
     }
 
     console.log(`[RECALC] Recalculating ETAs for ${remainingStops.length} remaining stops`);
