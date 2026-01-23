@@ -129,7 +129,7 @@ export function useSSE(
     };
 
     // Register all custom event handlers using ref (to get latest handlers)
-    Object.entries(eventHandlersRef.current).forEach(([eventName, handler]) => {
+    Object.keys(eventHandlersRef.current).forEach((eventName) => {
       eventSource.addEventListener(eventName, (event: MessageEvent) => {
         try {
           const data = event.data ? JSON.parse(event.data) : null;
