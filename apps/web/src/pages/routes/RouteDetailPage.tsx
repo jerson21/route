@@ -434,7 +434,7 @@ export function RouteDetailPage() {
 
   // SSE connection with automatic token refresh and reconnection
   const sseEnabled = route && ['SCHEDULED', 'IN_PROGRESS'].includes(route.status);
-  const { isConnected: sseConnected } = useSSE(
+  useSSE(
     `/routes/${id}/events`,
     sseEventHandlers,
     {

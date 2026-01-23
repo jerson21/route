@@ -53,8 +53,8 @@ export function useSSE(
 
   const eventSourceRef = useRef<EventSource | null>(null);
   const reconnectAttemptsRef = useRef(0);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const tokenRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const tokenRefreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isManuallyClosedRef = useRef(false);
 
   const [isConnected, setIsConnected] = useState(false);
