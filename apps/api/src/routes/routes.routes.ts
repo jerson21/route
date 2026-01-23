@@ -1655,6 +1655,7 @@ router.post('/:id/optimize', requireRole('ADMIN', 'OPERATOR'), async (req: Reque
 
         // SIEMPRE usar defaultServiceMinutes del depot para que cambios de config se apliquen
         const vrpDefaultServiceMinutes = route.depot?.defaultServiceMinutes || 15;
+        console.log(`[OPTIMIZE-VRP] Using defaultServiceMinutes: ${vrpDefaultServiceMinutes} (from depot: ${route.depot?.name || 'none'})`);
 
         const result = await optimizeRouteWithTimeWindows({
           depot: vrpOrigin,
@@ -1719,6 +1720,7 @@ router.post('/:id/optimize', requireRole('ADMIN', 'OPERATOR'), async (req: Reque
 
         // Get default service minutes from depot
         const defaultServiceMinutes = route.depot?.defaultServiceMinutes || 15;
+        console.log(`[OPTIMIZE] Using defaultServiceMinutes: ${defaultServiceMinutes} (from depot: ${route.depot?.name || 'none'})`);
 
         // If there's a forced first stop, use it as the optimization origin
         const optimizationOrigin = forcedFirstStop
@@ -1888,6 +1890,7 @@ router.post('/:id/optimize', requireRole('ADMIN', 'OPERATOR'), async (req: Reque
         const serviceMinAtFirstStop = forcedFirstStop?.estimatedMinutes || defaultServiceMinutes;
         const timeOffset = forcedFirstStop ? (depotToFirstStopMinutes + serviceMinAtFirstStop) * 60000 : 0;
 
+        console.log(`[OPTIMIZE] Saving ${result.estimatedArrivals.length} ETAs (serviceMin=${defaultServiceMinutes}, speed=50km/h):`);
         for (let i = 0; i < result.estimatedArrivals.length; i++) {
           const arrivalInfo = result.estimatedArrivals[i];
           const travelMinutes = result.legDurations[i] || 0;
@@ -1896,6 +1899,8 @@ router.post('/:id/optimize', requireRole('ADMIN', 'OPERATOR'), async (req: Reque
           const adjustedArrival = forcedFirstStop
             ? new Date(new Date(arrivalInfo.arrival).getTime() + timeOffset)
             : arrivalInfo.arrival;
+
+          console.log(`  ${i + 1}. Stop ${arrivalInfo.id.slice(-6)} -> ETA: ${adjustedArrival.toISOString()} (travel: ${travelMinutes}min)`);
 
           await prisma.stop.update({
             where: { id: arrivalInfo.id },
