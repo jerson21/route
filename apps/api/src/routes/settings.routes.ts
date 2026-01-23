@@ -196,16 +196,25 @@ router.get('/delivery', requireRole('ADMIN'), async (req: Request, res: Response
       where: { key: DELIVERY_SETTINGS_KEY }
     });
 
-    const defaultValue = {
-      requireSignature: false,
-      requirePhoto: false,
-      proofEnabled: true,
-      serviceMinutes: 15
+    // Get serviceMinutes from the default depot (this is what optimization actually uses)
+    const defaultDepot = await prisma.depot.findFirst({
+      where: { isDefault: true, isActive: true },
+      select: { defaultServiceMinutes: true }
+    });
+
+    const settingValue = setting?.value as { requireSignature?: boolean; requirePhoto?: boolean; proofEnabled?: boolean; serviceMinutes?: number } | null;
+
+    const data = {
+      requireSignature: settingValue?.requireSignature ?? false,
+      requirePhoto: settingValue?.requirePhoto ?? false,
+      proofEnabled: settingValue?.proofEnabled ?? true,
+      // Use depot's value as source of truth for serviceMinutes
+      serviceMinutes: defaultDepot?.defaultServiceMinutes ?? settingValue?.serviceMinutes ?? 15
     };
 
     res.json({
       success: true,
-      data: setting?.value || defaultValue
+      data
     });
   } catch (error) {
     next(error);
@@ -222,6 +231,22 @@ router.put('/delivery', requireRole('ADMIN'), async (req: Request, res: Response
       update: { value: data as any },
       create: { key: DELIVERY_SETTINGS_KEY, value: data as any }
     });
+
+    // Also update the default depot's serviceMinutes if provided
+    // This ensures the optimization uses the updated value
+    if (data.serviceMinutes !== undefined) {
+      const defaultDepot = await prisma.depot.findFirst({
+        where: { isDefault: true, isActive: true }
+      });
+
+      if (defaultDepot) {
+        await prisma.depot.update({
+          where: { id: defaultDepot.id },
+          data: { defaultServiceMinutes: data.serviceMinutes }
+        });
+        console.log(`[SETTINGS] Updated default depot (${defaultDepot.name}) serviceMinutes to ${data.serviceMinutes}`);
+      }
+    }
 
     res.json({ success: true, data: setting.value });
   } catch (error) {
