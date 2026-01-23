@@ -1597,15 +1597,23 @@ router.post('/:id/optimize', requireRole('ADMIN', 'OPERATOR'), async (req: Reque
       return true;
     });
 
-    console.log(`[OPTIMIZE] Route ${req.params.id}:`);
-    console.log(`  - Depot: ${depot.lat}, ${depot.lng}`);
+    console.log(`\n[OPTIMIZE] ========== ROUTE OPTIMIZATION ==========`);
+    console.log(`[OPTIMIZE] Route ID: ${req.params.id}`);
+    console.log(`[OPTIMIZE] Depot config:`);
+    console.log(`  - Name: ${route.depot?.name || 'none'}`);
+    console.log(`  - Location: ${depot.lat}, ${depot.lng}`);
+    console.log(`  - defaultServiceMinutes: ${route.depot?.defaultServiceMinutes ?? 'not set (default 15)'}`);
+    console.log(`  - defaultDepartureTime: ${route.depot?.defaultDepartureTime || '08:00 (default)'}`);
+    console.log(`  - etaWindowBefore: ${route.depot?.etaWindowBefore ?? 'not set'} min`);
+    console.log(`  - etaWindowAfter: ${route.depot?.etaWindowAfter ?? 'not set'} min`);
+    console.log(`[OPTIMIZE] Route config:`);
     console.log(`  - Valid stops: ${validStops.length}`);
     console.log(`  - Has time windows: ${hasTimeWindows}`);
     console.log(`  - Has priority stops: ${hasPriorityStops}`);
     console.log(`  - Forced first stop: ${forcedFirstStop ? `${forcedFirstStop.id} (${forcedFirstStop.address.latitude}, ${forcedFirstStop.address.longitude})` : 'none'}`);
     console.log(`  - Forced last stop: ${forcedLastStop ? `${forcedLastStop.id} (${forcedLastStop.address.latitude}, ${forcedLastStop.address.longitude})` : 'none'}`);
     console.log(`  - Stops to optimize: ${stopsToOptimize.length}`);
-    console.log(`  - Algorithm: ${(hasTimeWindows || hasPriorityStops) ? 'VRP (custom)' : 'Google Directions API'}`);
+    console.log(`  - Algorithm: ${(hasTimeWindows || hasPriorityStops) ? 'VRP with Time Windows' : '2-opt + Simulated Annealing'}`);
 
     let optimizedStopIds: string[];
     let optimizationResult: any = null;
@@ -1922,10 +1930,12 @@ router.post('/:id/optimize', requireRole('ADMIN', 'OPERATOR'), async (req: Reque
     }
 
     // Log final order before saving
-    console.log(`[OPTIMIZE] Final optimized order (${optimizedStopIds.length} stops):`);
+    console.log(`\n[OPTIMIZE] ========== FINAL OPTIMIZED ORDER ==========`);
+    console.log(`[OPTIMIZE] Total stops: ${optimizedStopIds.length}`);
     for (let i = 0; i < optimizedStopIds.length; i++) {
       const stop = validStops.find(s => s.id === optimizedStopIds[i]);
-      console.log(`  ${i + 1}. ${optimizedStopIds[i]} - ${stop?.address?.fullAddress || 'unknown'}`);
+      const shortAddr = stop?.address?.fullAddress?.substring(0, 40) || 'unknown';
+      console.log(`  ${String(i + 1).padStart(2)}. ${shortAddr}...`);
     }
 
     // Reorder stops in database
@@ -1968,6 +1978,22 @@ router.post('/:id/optimize', requireRole('ADMIN', 'OPERATOR'), async (req: Reque
         }
       }
     });
+
+    // Log final ETA summary
+    console.log(`\n[OPTIMIZE] ========== ETA SUMMARY ==========`);
+    console.log(`[OPTIMIZE] Service time used: ${route.depot?.defaultServiceMinutes || 15} min/stop`);
+    console.log(`[OPTIMIZE] Departure: ${optimizationResult.estimatedArrivals?.[0]?.departure || 'N/A'}`);
+    if (updatedRoute?.stops) {
+      for (const stop of updatedRoute.stops) {
+        const eta = stop.estimatedArrival
+          ? new Date(stop.estimatedArrival).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' })
+          : 'N/A';
+        const addr = stop.address?.fullAddress?.substring(0, 35) || 'unknown';
+        console.log(`  ${String(stop.sequenceOrder).padStart(2)}. ${eta} | ${addr}...`);
+      }
+    }
+    console.log(`[OPTIMIZE] Depot return: ${optimizationResult.depotReturnTime ? new Date(optimizationResult.depotReturnTime).toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' }) : 'N/A'}`);
+    console.log(`[OPTIMIZE] ============================================\n`);
 
     res.json({
       success: true,

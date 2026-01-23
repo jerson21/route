@@ -936,6 +936,8 @@ export async function optimizeRouteWith2Opt(
   const matrixMode = useHaversine ? 'Haversine (GRATIS)' : 'Google Matrix API';
   console.log(`[OPTIMIZE] Starting optimization for ${stops.length} stops using Simulated Annealing`);
   console.log(`[OPTIMIZE] Distance matrix mode: ${matrixMode}`);
+  console.log(`[OPTIMIZE] Departure time: ${startTime.toISOString()}`);
+  console.log(`[OPTIMIZE] Default service time: ${defaultServiceMinutes} min/stop`);
   if (hasReturnPoint) {
     console.log(`[OPTIMIZE] Different return point specified (forced first stop scenario)`);
   }
@@ -1055,6 +1057,14 @@ export async function optimizeRouteWith2Opt(
       arrival: arrivalTime,
       departure: departureFromStop
     });
+
+    // Log ETA calculation for this stop
+    if (i < 3 || i === stopIndices.length - 1) {
+      const timeStr = arrivalTime.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit' });
+      console.log(`[ETA] Stop ${i + 1}/${stopIndices.length}: arrival=${timeStr}, travel=${Math.round(durationMin)}min, service=${serviceMin}min`);
+    } else if (i === 3) {
+      console.log(`[ETA] ... (${stopIndices.length - 4} more stops) ...`);
+    }
 
     prevIdx = stopIdx;
   }
