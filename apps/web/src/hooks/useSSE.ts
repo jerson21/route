@@ -56,6 +56,7 @@ export function useSSE(
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tokenRefreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isManuallyClosedRef = useRef(false);
+  const currentTokenRef = useRef<string | null>(null); // Track token used by current SSE connection
 
   // Use refs for callbacks to avoid reconnection on every render
   const onOpenRef = useRef(onOpen);
@@ -87,6 +88,9 @@ export function useSSE(
       setError('No auth token');
       return;
     }
+
+    // Save the token being used for this connection
+    currentTokenRef.current = token;
 
     // Close existing connection if any
     if (eventSourceRef.current) {
@@ -193,12 +197,13 @@ export function useSSE(
     tokenRefreshIntervalRef.current = setInterval(async () => {
       // Check connection state directly from ref, not from state
       if (eventSourceRef.current && eventSourceRef.current.readyState === EventSource.OPEN) {
-        console.log('[SSE] Proactive token refresh...');
+        console.log('[SSE] Proactive token refresh check...');
         try {
+          const tokenBeforeRefresh = currentTokenRef.current;
           const newToken = await refreshTokenIfNeeded();
-          if (newToken && eventSourceRef.current) {
-            // Reconnect with fresh token
-            console.log('[SSE] Reconnecting with fresh token');
+          // Only reconnect if we got a DIFFERENT token (actual refresh happened)
+          if (newToken && newToken !== tokenBeforeRefresh && eventSourceRef.current) {
+            console.log('[SSE] Token was actually refreshed, reconnecting...');
             reconnectAttemptsRef.current = 0;
             connect();
           }
@@ -220,7 +225,8 @@ export function useSSE(
     if (!enabled) return;
 
     const unsubscribe = onTokenChange((newToken) => {
-      if (newToken && eventSourceRef.current) {
+      // Only reconnect if token actually changed (not just same token notified again)
+      if (newToken && newToken !== currentTokenRef.current && eventSourceRef.current) {
         // Token was refreshed by another part of the app
         // Reconnect with the new token
         console.log('[SSE] Token changed externally, reconnecting...');
