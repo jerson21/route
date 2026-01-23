@@ -916,8 +916,8 @@ router.post('/:id/start', async (req: Request, res: Response, next: NextFunction
         }
       });
 
-      // Para la siguiente parada, agregar el tiempo de servicio
-      const serviceMinutes = stop.estimatedMinutes || 15;
+      // Para la siguiente parada, agregar el tiempo de servicio (usar config de depot)
+      const serviceMinutes = stop.estimatedMinutes || route.depot?.defaultServiceMinutes || 15;
       currentTime = new Date(arrivalTime.getTime() + serviceMinutes * 60 * 1000);
     }
 
@@ -1653,6 +1653,9 @@ router.post('/:id/optimize', requireRole('ADMIN', 'OPERATOR'), async (req: Reque
           ? { lat: forcedFirstStop.address.latitude!, lng: forcedFirstStop.address.longitude! }
           : depot;
 
+        // SIEMPRE usar defaultServiceMinutes del depot para que cambios de config se apliquen
+        const vrpDefaultServiceMinutes = route.depot?.defaultServiceMinutes || 15;
+
         const result = await optimizeRouteWithTimeWindows({
           depot: vrpOrigin,
           stops: stopsToOptimize.map(s => ({
@@ -1661,7 +1664,7 @@ router.post('/:id/optimize', requireRole('ADMIN', 'OPERATOR'), async (req: Reque
             lng: s.address.longitude!,
             timeWindowStart: s.timeWindowStart,
             timeWindowEnd: s.timeWindowEnd,
-            serviceMinutes: s.estimatedMinutes || 15,
+            serviceMinutes: vrpDefaultServiceMinutes,
             priority: s.priority || 0
           })),
           driverStartTime: driverStart,
@@ -1731,13 +1734,14 @@ router.post('/:id/optimize', requireRole('ADMIN', 'OPERATOR'), async (req: Reque
           : (forcedFirstStop ? depot : undefined);
 
         // Use 2-opt algorithm (Nearest Neighbor + 2-opt improvement)
+        // SIEMPRE usar defaultServiceMinutes del depot para que cambios de config se apliquen
         const result = await optimizeRouteWith2Opt(
           optimizationOrigin,
           stopsToOptimize.map((s: any) => ({
             id: s.id,
             lat: s.address.latitude!,
             lng: s.address.longitude!,
-            serviceMinutes: s.estimatedMinutes || defaultServiceMinutes
+            serviceMinutes: defaultServiceMinutes
           })),
           apiKey,
           departureTime,
@@ -2957,7 +2961,7 @@ router.post('/import', requireRole('ADMIN', 'OPERATOR'), async (req: Request, re
             timeWindowStart,
             timeWindowEnd,
             priority: stopData.priority || 0,
-            estimatedMinutes: stopData.estimatedMinutes || 15,
+            estimatedMinutes: stopData.estimatedMinutes || depot?.defaultServiceMinutes || 15,
           },
         });
 

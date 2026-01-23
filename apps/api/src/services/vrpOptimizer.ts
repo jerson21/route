@@ -89,8 +89,8 @@ function getDistanceMatrixHaversine(
   // Factor de corrección: las calles no son línea recta
   // En zonas urbanas típicas, la distancia real es ~1.3-1.4x la línea recta
   const ROAD_FACTOR = 1.35;
-  // Velocidad promedio en ciudad: 30 km/h = 500 m/min
-  const AVG_SPEED_M_PER_MIN = 500;
+  // Velocidad promedio en ciudad: 50 km/h = 833 m/min (límite urbano Chile)
+  const AVG_SPEED_M_PER_MIN = 833;
 
   for (let i = 0; i < n; i++) {
     distances[i] = [];

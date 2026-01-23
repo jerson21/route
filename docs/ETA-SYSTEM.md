@@ -30,13 +30,13 @@ tiempo_viaje = distancia_real / VELOCIDAD_PROMEDIO
 
 | Parámetro | Valor | Archivo | Descripción |
 |-----------|-------|---------|-------------|
-| `ROAD_FACTOR` | 1.35 | vrpOptimizer.ts:82 | Las calles no son línea recta |
-| `AVG_SPEED_M_PER_MIN` | 500 | vrpOptimizer.ts:83 | 30 km/h promedio |
+| `ROAD_FACTOR` | 1.35 | vrpOptimizer.ts:91 | Las calles no son línea recta |
+| `AVG_SPEED_M_PER_MIN` | 833 | vrpOptimizer.ts:93 | 50 km/h (límite urbano Chile) |
 
 **Ejemplo:**
 - Distancia línea recta: 5 km
 - Distancia real estimada: 5 × 1.35 = 6.75 km
-- Tiempo de viaje: 6750m / 500 m/min = 13.5 minutos
+- Tiempo de viaje: 6750m / 833 m/min = 8.1 minutos
 
 ### Cómo se calcula la ETA de cada parada
 
@@ -151,11 +151,11 @@ curl -X PUT https://api.tu-dominio.com/api/v1/depots/{id} \
 
 ### En el Código (requiere deploy)
 
-| Parámetro | Archivo | Línea | Valor actual | Recomendado Santiago |
-|-----------|---------|-------|--------------|----------------------|
-| `AVG_SPEED_M_PER_MIN` | vrpOptimizer.ts | 83 | 500 (30 km/h) | 667 (40 km/h) |
-| `ROAD_FACTOR` | vrpOptimizer.ts | 82 | 1.35 | 1.35 (mantener) |
-| `DEVIATION_THRESHOLD_MINUTES` | etaRecalculationService.ts | 15 | 15 | 15 (mantener) |
+| Parámetro | Archivo | Línea | Valor actual |
+|-----------|---------|-------|--------------|
+| `AVG_SPEED_M_PER_MIN` | vrpOptimizer.ts | 93 | 833 (50 km/h) |
+| `ROAD_FACTOR` | vrpOptimizer.ts | 91 | 1.35 |
+| `DEVIATION_THRESHOLD_MINUTES` | etaRecalculationService.ts | 15 | 15 |
 
 ---
 
@@ -207,10 +207,11 @@ Ventana redondeada: 14:00 - 15:30  ← Se envía al cliente
 
 | Síntoma | Causa probable | Solución |
 |---------|----------------|----------|
-| Conductor llega MUY temprano | Velocidad muy baja (30 km/h) | Subir a 40 km/h |
-| Conductor llega MUY temprano | Tiempo servicio muy alto (15 min) | Bajar a 5 min |
-| Conductor llega tarde | Velocidad muy alta | Bajar velocidad |
-| ETAs se desajustan progresivamente | Tiempo servicio incorrecto | Ajustar serviceMinutes |
+| Conductor llega MUY temprano | Tiempo servicio muy alto | Bajar serviceMinutes en depot |
+| Conductor llega tarde | Velocidad configurada muy alta | Bajar AVG_SPEED (requiere deploy) |
+| ETAs se desajustan progresivamente | Tiempo servicio incorrecto | Ajustar defaultServiceMinutes en depot |
+
+> **Nota:** La velocidad actual es 50 km/h (límite urbano Chile). Ajustar en `vrpOptimizer.ts` si es necesario.
 
 ### Cálculo del Error Acumulado
 
@@ -279,18 +280,15 @@ docker compose logs api | grep "directions/json"
 ### Para reducir costos de Google API (~99% ahorro)
 
 1. **Ya implementado:** Umbral de 15 min en recálculo
-2. **Pendiente deploy:** Archivo `etaRecalculationService.ts` con la optimización
+2. **Ya implementado:** Haversine en optimización (sin llamadas a Distance Matrix)
 
-### Para mejorar precisión de ETAs
+### Configuración de ETAs
 
-1. **Cambiar en código (vrpOptimizer.ts:83):**
+1. **Velocidad (ya configurado a 50 km/h):**
    ```typescript
-   // ANTES
-   const AVG_SPEED_M_PER_MIN = 500;  // 30 km/h
-
-   // DESPUÉS
-   const AVG_SPEED_M_PER_MIN = 667;  // 40 km/h
+   // vrpOptimizer.ts:93
+   const AVG_SPEED_M_PER_MIN = 833;  // 50 km/h (límite urbano Chile)
    ```
 
-2. **Cambiar en Settings → Depots:**
-   - `defaultServiceMinutes`: 15 → 5 (o el tiempo real de tus entregas)
+2. **Tiempo de servicio (Settings → Depots):**
+   - `defaultServiceMinutes`: Ajustar al tiempo real de tus entregas (ej: 5 min)

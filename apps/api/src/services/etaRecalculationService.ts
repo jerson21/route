@@ -250,13 +250,14 @@ async function getTravelTime(
     }
 
     // Fallback: estimate based on straight-line distance
-    const distance = haversineDistance(origin, destination);
-    return Math.ceil(distance / 500); // Assume ~30 km/h average speed
+    // Aplicar factor de corrección (calles no son línea recta) y velocidad 50 km/h
+    const distance = haversineDistance(origin, destination) * 1.35;
+    return Math.ceil(distance / 833); // 50 km/h = 833 m/min
   } catch (error) {
     console.error('[RECALC] Error getting travel time:', error);
-    // Fallback
-    const distance = haversineDistance(origin, destination);
-    return Math.ceil(distance / 500);
+    // Fallback con mismo cálculo
+    const distance = haversineDistance(origin, destination) * 1.35;
+    return Math.ceil(distance / 833);
   }
 }
 
