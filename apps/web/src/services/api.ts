@@ -52,15 +52,20 @@ api.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    console.log('[AUTH] 401 received, checking refresh state...');
+
     // If refresh is already in progress, queue this request
     if (isRefreshing) {
+      console.log('[AUTH] Refresh in progress, queuing request...');
       return new Promise((resolve, reject) => {
         failedQueue.push({
           resolve: (token: string) => {
+            console.log('[AUTH] Processing queued request with new token');
             originalRequest.headers.Authorization = `Bearer ${token}`;
             resolve(api(originalRequest));
           },
           reject: (err: Error) => {
+            console.log('[AUTH] Queued request rejected:', err.message);
             reject(err);
           }
         });
@@ -69,18 +74,22 @@ api.interceptors.response.use(
 
     originalRequest._retry = true;
     isRefreshing = true;
+    console.log('[AUTH] Starting token refresh...');
 
     try {
       const refreshToken = localStorage.getItem('refreshToken');
       if (!refreshToken) {
+        console.log('[AUTH] No refresh token found in localStorage');
         throw new Error('No refresh token');
       }
 
+      console.log('[AUTH] Calling refresh endpoint...');
       const response = await axios.post(`${API_URL}/auth/refresh`, {
         refreshToken
       });
 
       const { accessToken, refreshToken: newRefreshToken } = response.data.data;
+      console.log('[AUTH] Refresh successful, saving new tokens');
 
       // Save BOTH tokens
       localStorage.setItem('accessToken', accessToken);
@@ -89,12 +98,14 @@ api.interceptors.response.use(
       }
 
       // Process queued requests with new token
+      console.log(`[AUTH] Processing ${failedQueue.length} queued requests`);
       processQueue(null, accessToken);
 
       originalRequest.headers.Authorization = `Bearer ${accessToken}`;
       return api(originalRequest);
-    } catch (refreshError) {
+    } catch (refreshError: any) {
       // Only logout if refresh actually failed
+      console.log('[AUTH] Refresh failed:', refreshError.message || refreshError);
       processQueue(refreshError as Error, null);
       localStorage.removeItem('accessToken');
       localStorage.removeItem('refreshToken');
@@ -102,6 +113,7 @@ api.interceptors.response.use(
       return Promise.reject(refreshError);
     } finally {
       isRefreshing = false;
+      console.log('[AUTH] Refresh process completed');
     }
   }
 );
