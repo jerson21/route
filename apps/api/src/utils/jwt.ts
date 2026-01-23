@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 import type { UserRole } from '@route-optimizer/shared';
 
 const ACCESS_TOKEN_EXPIRY = '15m';
@@ -38,4 +39,20 @@ export function generateTokens(user: { id: string; email: string; role: UserRole
   const refreshToken = generateRefreshToken(user.id);
 
   return { accessToken, refreshToken };
+}
+
+/**
+ * Hash a refresh token for secure storage in the database.
+ * Uses SHA-256 which is fast and suitable for tokens (unlike passwords which need bcrypt).
+ */
+export function hashToken(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex');
+}
+
+/**
+ * Generate a unique device ID for session tracking.
+ * This allows multiple devices to have separate sessions.
+ */
+export function generateDeviceId(): string {
+  return crypto.randomUUID();
 }

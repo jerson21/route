@@ -9,7 +9,9 @@ const router = Router();
 
 const loginSchema = z.object({
   email: z.string().email('Email inválido'),
-  password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres')
+  password: z.string().min(6, 'La contraseña debe tener al menos 6 caracteres'),
+  deviceId: z.string().optional(),
+  deviceInfo: z.string().optional()
 });
 
 const registerSchema = z.object({
@@ -19,6 +21,16 @@ const registerSchema = z.object({
   lastName: z.string().min(2, 'Apellido requerido'),
   role: z.enum(['ADMIN', 'OPERATOR', 'DRIVER']).optional(),
   phone: z.string().optional()
+});
+
+const refreshSchema = z.object({
+  refreshToken: z.string().min(1, 'Refresh token requerido'),
+  deviceId: z.string().optional()
+});
+
+const logoutSchema = z.object({
+  refreshToken: z.string().optional(),
+  logoutAll: z.boolean().optional()
 });
 
 // POST /auth/login
@@ -52,13 +64,13 @@ router.post('/register', async (req: Request, res: Response, next: NextFunction)
 // POST /auth/refresh
 router.post('/refresh', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { refreshToken } = req.body;
-    if (!refreshToken) {
-      throw new AppError(400, 'Refresh token requerido');
-    }
-    const tokens = await authService.refreshAccessToken(refreshToken);
+    const data = refreshSchema.parse(req.body);
+    const tokens = await authService.refreshAccessToken(data);
     res.json({ success: true, data: tokens });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return next(new AppError(400, error.errors[0].message));
+    }
     next(error);
   }
 });
@@ -66,10 +78,17 @@ router.post('/refresh', async (req: Request, res: Response, next: NextFunction) 
 // POST /auth/logout
 router.post('/logout', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { refreshToken } = req.body;
-    await authService.logout(req.user!.id, refreshToken);
+    const data = logoutSchema.parse(req.body);
+    await authService.logout({
+      userId: req.user!.id,
+      refreshToken: data.refreshToken,
+      logoutAll: data.logoutAll
+    });
     res.json({ success: true, message: 'Sesión cerrada' });
   } catch (error) {
+    if (error instanceof z.ZodError) {
+      return next(new AppError(400, error.errors[0].message));
+    }
     next(error);
   }
 });
@@ -79,6 +98,26 @@ router.get('/me', authenticate, async (req: Request, res: Response, next: NextFu
   try {
     const user = await authService.getCurrentUser(req.user!.id);
     res.json({ success: true, data: user });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /auth/sessions - Get all active sessions for current user
+router.get('/sessions', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const sessions = await authService.getActiveSessions(req.user!.id);
+    res.json({ success: true, data: sessions });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /auth/sessions/:id - Revoke a specific session
+router.delete('/sessions/:id', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await authService.revokeSession(req.user!.id, req.params.id);
+    res.json({ success: true, message: 'Sesión revocada' });
   } catch (error) {
     next(error);
   }

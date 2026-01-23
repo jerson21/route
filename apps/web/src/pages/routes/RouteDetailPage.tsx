@@ -1,6 +1,7 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../../services/api';
+import { useSSE } from '../../hooks/useSSE';
 import { RouteMap } from '../../components/map/RouteMap';
 import { AddressSearch } from '../../components/search/AddressSearch';
 import { StopDetailPanel } from '../../components/stops/StopDetailPanel';
@@ -390,72 +391,36 @@ export function RouteDetailPage() {
     return () => clearInterval(pollInterval);
   }, [route?.status, id]);
 
-  // SSE connection for real-time updates when route is SCHEDULED or IN_PROGRESS
-  useEffect(() => {
-    if (!route || !['SCHEDULED', 'IN_PROGRESS'].includes(route.status)) {
-      return;
-    }
-
-    // Get auth token for SSE connection
-    const token = localStorage.getItem('accessToken');
-    if (!token) {
-      console.debug('[SSE] No auth token, falling back to polling');
-      return;
-    }
-
-    // Note: EventSource doesn't support custom headers, so we use query param for auth
-    // This is a common pattern for SSE authentication
-    const eventSource = new EventSource(
-      `${import.meta.env.VITE_API_URL || '/api/v1'}/routes/${id}/events?token=${encodeURIComponent(token)}`
-    );
-
-    eventSource.onopen = () => {
-      console.log('[SSE] Connected to route events');
-    };
-
-    eventSource.onerror = (error) => {
-      console.debug('[SSE] Connection error, will auto-reconnect:', error);
-    };
-
-    // Handle specific events - use silent refresh to avoid screen flashing
-    eventSource.addEventListener('stop.in_transit', (event) => {
-      console.log('[SSE] Stop in transit:', event.data);
-      // Refresh route data to get latest state (silent)
+  // SSE event handlers - memoized to prevent unnecessary reconnections
+  const sseEventHandlers = useMemo(() => ({
+    'stop.in_transit': () => {
+      console.log('[SSE] Stop in transit');
       fetchRoute(true);
-    });
-
-    eventSource.addEventListener('stop.status_changed', (event) => {
-      console.log('[SSE] Stop status changed:', event.data);
-      const data = JSON.parse(event.data);
-      // Update route directly if full route is provided, otherwise fetch silently
-      if (data.route) {
+    },
+    'stop.status_changed': (data: any) => {
+      console.log('[SSE] Stop status changed:', data);
+      if (data?.route) {
         setRoute(data.route);
       } else {
         fetchRoute(true);
       }
-    });
-
-    eventSource.addEventListener('route.loaded', (event) => {
-      console.log('[SSE] Route loaded (truck):', event.data);
+    },
+    'route.loaded': () => {
+      console.log('[SSE] Route loaded (truck)');
       fetchRoute(true);
       addToast('Camion cargado', 'info');
-    });
-
-    eventSource.addEventListener('route.started', (event) => {
-      console.log('[SSE] Route started:', event.data);
-      fetchRoute(true); // Refresh to get startedAt and recalculated ETAs
+    },
+    'route.started': () => {
+      console.log('[SSE] Route started');
+      fetchRoute(true);
       addToast('Ruta iniciada por el conductor', 'info');
-    });
-
-    eventSource.addEventListener('route.completed', (event) => {
-      console.log('[SSE] Route completed:', event.data);
+    },
+    'route.completed': () => {
+      console.log('[SSE] Route completed');
       fetchRoute(true);
       addToast('Ruta completada', 'success');
-    });
-
-    // Handle driver location updates - update map in real-time
-    eventSource.addEventListener('driver.location_updated', (event) => {
-      const data = JSON.parse(event.data);
+    },
+    'driver.location_updated': (data: any) => {
       console.log('[SSE] Driver location updated:', data);
       setDriverLocation({
         lat: data.latitude,
@@ -464,18 +429,20 @@ export function RouteDetailPage() {
         speed: data.speed,
         updatedAt: data.updatedAt
       });
-    });
+    }
+  }), []);
 
-    // Generic message handler for any other events
-    eventSource.onmessage = (event) => {
-      console.log('[SSE] Message:', event.data);
-    };
-
-    return () => {
-      console.log('[SSE] Closing connection');
-      eventSource.close();
-    };
-  }, [route?.status, id]);
+  // SSE connection with automatic token refresh and reconnection
+  const sseEnabled = route && ['SCHEDULED', 'IN_PROGRESS'].includes(route.status);
+  const { isConnected: sseConnected } = useSSE(
+    `/routes/${id}/events`,
+    sseEventHandlers,
+    {
+      enabled: !!sseEnabled,
+      onOpen: () => console.log('[SSE] Connected to route events'),
+      onError: () => console.debug('[SSE] Connection error, will auto-reconnect')
+    }
+  );
 
 
   const handleAssignDriver = async () => {
