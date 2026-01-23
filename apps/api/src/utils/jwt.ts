@@ -2,7 +2,7 @@ import jwt from 'jsonwebtoken';
 import crypto from 'crypto';
 import type { UserRole } from '@route-optimizer/shared';
 
-const ACCESS_TOKEN_EXPIRY = '15m';
+const ACCESS_TOKEN_EXPIRY = '4h';
 const REFRESH_TOKEN_EXPIRY = '7d';
 
 interface TokenPayload {
