@@ -8,6 +8,8 @@
  * - Driver start/end times
  */
 
+import { trackGoogleApiCall } from './googleApiTracker.service.js';
+
 interface Location {
   id: string;
   lat: number;
@@ -148,8 +150,21 @@ async function getRealTimesFromDirections(
 
     console.log(`[HYBRID] Fetching real times from Directions API (1 call)`);
 
+    const startTime = Date.now();
     const response = await fetch(url.toString());
     const data = await response.json() as any;
+    const responseTimeMs = Date.now() - startTime;
+
+    // Track API call
+    trackGoogleApiCall({
+      apiType: 'DIRECTIONS',
+      endpoint: 'directions/json',
+      requestParams: { origin, destination, waypoints: waypointsParam ? 'present' : 'none', mode: 'driving' },
+      responseStatus: data.status,
+      httpStatus: response.status,
+      responseTimeMs,
+      source: 'vrpOptimizer.getRealTimesFromDirections',
+    });
 
     if (data.status !== 'OK') {
       console.warn(`[HYBRID] Directions API error: ${data.status}`);
@@ -215,8 +230,23 @@ async function getDistanceMatrix(
 
   const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${originStr}&destinations=${destStr}&mode=driving&key=${apiKey}`;
 
+  const startTime = Date.now();
   const response = await fetch(url);
   const data = await response.json() as DistanceMatrixResponse;
+  const responseTimeMs = Date.now() - startTime;
+
+  // Track API call (element count = origins * destinations)
+  const elementCount = origins.length * destinations.length;
+  trackGoogleApiCall({
+    apiType: 'DISTANCE_MATRIX',
+    endpoint: 'distancematrix/json',
+    requestParams: { origins: origins.length, destinations: destinations.length, mode: 'driving' },
+    responseStatus: data.status,
+    httpStatus: response.status,
+    responseTimeMs,
+    elementCount,
+    source: 'vrpOptimizer.getDistanceMatrix',
+  });
 
   if (data.status !== 'OK') {
     throw new Error(`Distance Matrix API error: ${data.status}`);
@@ -542,8 +572,21 @@ export async function optimizeRouteWithDirections(
     url.searchParams.set('mode', 'driving');
     url.searchParams.set('key', apiKey);
 
+    const apiStartTime = Date.now();
     const response = await fetch(url.toString());
     const data = await response.json() as DirectionsResponse;
+    const apiResponseTime = Date.now() - apiStartTime;
+
+    // Track API call
+    trackGoogleApiCall({
+      apiType: 'DIRECTIONS',
+      endpoint: 'directions/json',
+      requestParams: { stops: 1, mode: 'driving' },
+      responseStatus: data.status,
+      httpStatus: response.status,
+      responseTimeMs: apiResponseTime,
+      source: 'vrpOptimizer.optimizeRouteWithDirections',
+    });
 
     if (data.status !== 'OK' || !data.routes[0]) {
       throw new Error(`Directions API error: ${data.status}`);
@@ -597,8 +640,22 @@ export async function optimizeRouteWithDirections(
 
   console.log(`Calling Directions API with ${stops.length} waypoints, traffic: ${usedTraffic}`);
 
+  const apiStartTime = Date.now();
   const response = await fetch(url.toString());
   const data = await response.json() as DirectionsResponse;
+  const apiResponseTime = Date.now() - apiStartTime;
+
+  // Track API call
+  trackGoogleApiCall({
+    apiType: 'DIRECTIONS',
+    endpoint: 'directions/json',
+    requestParams: { stops: stops.length, optimize: true, traffic: usedTraffic },
+    responseStatus: data.status,
+    httpStatus: response.status,
+    responseTimeMs: apiResponseTime,
+    useTraffic: usedTraffic,
+    source: 'vrpOptimizer.optimizeRouteWithDirections',
+  });
 
   if (data.status !== 'OK') {
     throw new Error(`Directions API error: ${data.status}`);

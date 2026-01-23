@@ -8,6 +8,7 @@ interface MapLocation {
   label?: string;
   type?: 'origin' | 'stop' | 'destination';
   priority?: number;
+  status?: 'PENDING' | 'IN_TRANSIT' | 'COMPLETED' | 'SKIPPED' | 'FAILED';
 }
 
 interface DriverLocation {
@@ -39,14 +40,75 @@ interface RouteMapProps {
 const SANTIAGO_CENTER = { lat: -33.4489, lng: -70.6693 };
 
 // Crear elemento HTML para AdvancedMarkerElement
-function createMarkerElement(label: string, type: 'origin' | 'stop' | 'destination' = 'stop', priority?: number): HTMLElement {
-  const color = type === 'origin' ? '#22C55E' : type === 'destination' ? '#EF4444' : '#4285F4';
-  const borderColor = type === 'origin' ? '#16A34A' : type === 'destination' ? '#DC2626' : '#1A73E8';
+function createMarkerElement(
+  label: string,
+  type: 'origin' | 'stop' | 'destination' = 'stop',
+  priority?: number,
+  status?: 'PENDING' | 'IN_TRANSIT' | 'COMPLETED' | 'SKIPPED' | 'FAILED'
+): HTMLElement {
+  // Determinar colores según estado
+  let color: string;
+  let borderColor: string;
+  let iconContent = ''; // Contenido especial para completados/saltados
+
+  if (type === 'origin') {
+    color = '#22C55E';
+    borderColor = '#16A34A';
+  } else if (type === 'destination') {
+    color = '#EF4444';
+    borderColor = '#DC2626';
+  } else {
+    // Para paradas, el color depende del estado
+    switch (status) {
+      case 'COMPLETED':
+        color = '#22C55E'; // Verde
+        borderColor = '#16A34A';
+        // Checkmark icon
+        iconContent = `<path d="M11 18L8 15l-1.4 1.4L11 20.8l8-8-1.4-1.4L11 18z" fill="${color}" transform="translate(4, 2) scale(0.8)"/>`;
+        break;
+      case 'SKIPPED':
+      case 'FAILED':
+        color = '#9CA3AF'; // Gris
+        borderColor = '#6B7280';
+        // X icon
+        iconContent = `<path d="M12 10.6L17.4 5.2 19 6.8 13.4 12l5.6 5.2-1.6 1.6-5.4-5.6-5.4 5.6-1.6-1.6 5.6-5.2-5.6-5.2 1.6-1.6 5.4 5.6z" fill="${color}" transform="translate(4, 2) scale(0.7)"/>`;
+        break;
+      case 'IN_TRANSIT':
+        color = '#F59E0B'; // Amarillo/Naranja
+        borderColor = '#D97706';
+        break;
+      default: // PENDING
+        color = '#4285F4';
+        borderColor = '#1A73E8';
+    }
+  }
+
   const hasPriority = priority && priority > 0;
+  const isInTransit = status === 'IN_TRANSIT';
+  const showLabel = status !== 'COMPLETED' && status !== 'SKIPPED' && status !== 'FAILED';
 
   const container = document.createElement('div');
   container.innerHTML = `
     <div style="position: relative; cursor: pointer;">
+      ${isInTransit ? `
+        <div style="
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -70%);
+          width: 50px;
+          height: 50px;
+          border-radius: 50%;
+          background: rgba(245, 158, 11, 0.3);
+          animation: pulse-stop 1.5s ease-out infinite;
+        "></div>
+        <style>
+          @keyframes pulse-stop {
+            0% { transform: translate(-50%, -70%) scale(0.8); opacity: 1; }
+            100% { transform: translate(-50%, -70%) scale(1.4); opacity: 0; }
+          }
+        </style>
+      ` : ''}
       ${hasPriority ? `<div style="position: absolute; top: -8px; right: -8px; width: 16px; height: 16px; background: #EF4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 10; box-shadow: 0 1px 3px rgba(0,0,0,0.3);">
         <span style="color: white; font-size: 9px; font-weight: bold;">!</span>
       </div>` : ''}
@@ -54,7 +116,10 @@ function createMarkerElement(label: string, type: 'origin' | 'stop' | 'destinati
         <path d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z"
               fill="${color}" stroke="${borderColor}" stroke-width="1"/>
         <circle cx="16" cy="14" r="10" fill="white"/>
-        <text x="16" y="18" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="${color}">${label}</text>
+        ${showLabel
+          ? `<text x="16" y="18" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="${color}">${label}</text>`
+          : iconContent
+        }
       </svg>
     </div>
   `;
@@ -62,33 +127,82 @@ function createMarkerElement(label: string, type: 'origin' | 'stop' | 'destinati
 }
 
 // Crear elemento HTML para marcador apilado (múltiples paradas en el mismo punto)
-function createStackedMarkerElement(labels: string[], count: number): HTMLElement {
+function createStackedMarkerElement(
+  labels: string[],
+  count: number,
+  statuses?: Array<'PENDING' | 'IN_TRANSIT' | 'COMPLETED' | 'SKIPPED' | 'FAILED' | undefined>
+): HTMLElement {
   const container = document.createElement('div');
   // Mostrar los números de las paradas (ej: "01,02,03")
   const labelsText = labels.slice(0, 3).join(',') + (labels.length > 3 ? '...' : '');
 
+  // Calcular estadísticas de estado
+  const completed = statuses?.filter(s => s === 'COMPLETED').length || 0;
+  const inTransit = statuses?.filter(s => s === 'IN_TRANSIT').length || 0;
+  const allCompleted = completed === count;
+  const hasInTransit = inTransit > 0;
+
+  // Color según estado del grupo
+  let color = '#8B5CF6'; // Púrpura por defecto
+  let borderColor = '#6D28D9';
+  if (allCompleted) {
+    color = '#22C55E'; // Verde si todos completados
+    borderColor = '#16A34A';
+  } else if (hasInTransit) {
+    color = '#F59E0B'; // Naranja si alguno en tránsito
+    borderColor = '#D97706';
+  } else if (completed > 0) {
+    color = '#3B82F6'; // Azul si algunos completados
+    borderColor = '#1D4ED8';
+  }
+
+  // Texto de estado (ej: "2/3")
+  const statusText = completed > 0 ? `${completed}/${count}` : `${count}`;
+
   container.innerHTML = `
     <div style="position: relative; cursor: pointer;">
-      <!-- Badge con cantidad -->
-      <div style="position: absolute; top: -10px; right: -10px; min-width: 22px; height: 22px; padding: 0 4px; background: linear-gradient(135deg, #8B5CF6 0%, #6D28D9 100%); border-radius: 11px; display: flex; align-items: center; justify-content: center; z-index: 10; box-shadow: 0 2px 4px rgba(0,0,0,0.3); border: 2px solid white;">
-        <span style="color: white; font-size: 11px; font-weight: bold;">${count}</span>
+      ${hasInTransit ? `
+        <div style="
+          position: absolute;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -70%);
+          width: 50px;
+          height: 50px;
+          border-radius: 50%;
+          background: rgba(245, 158, 11, 0.3);
+          animation: pulse-stack 1.5s ease-out infinite;
+        "></div>
+        <style>
+          @keyframes pulse-stack {
+            0% { transform: translate(-50%, -70%) scale(0.8); opacity: 1; }
+            100% { transform: translate(-50%, -70%) scale(1.4); opacity: 0; }
+          }
+        </style>
+      ` : ''}
+      <!-- Badge con cantidad/progreso -->
+      <div style="position: absolute; top: -10px; right: -10px; min-width: 22px; height: 22px; padding: 0 4px; background: ${allCompleted ? '#22C55E' : (completed > 0 ? '#3B82F6' : color)}; border-radius: 11px; display: flex; align-items: center; justify-content: center; z-index: 10; box-shadow: 0 2px 4px rgba(0,0,0,0.3); border: 2px solid white;">
+        <span style="color: white; font-size: 10px; font-weight: bold;">${statusText}</span>
       </div>
       <!-- Marcadores apilados visualmente -->
       <div style="position: relative;">
         <!-- Sombra de fondo (simula stack) -->
         <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40" style="position: absolute; left: 4px; top: 4px; opacity: 0.3;">
-          <path d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z" fill="#4285F4"/>
+          <path d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z" fill="${color}"/>
         </svg>
         <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40" style="position: absolute; left: 2px; top: 2px; opacity: 0.5;">
-          <path d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z" fill="#4285F4"/>
+          <path d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z" fill="${color}"/>
         </svg>
         <!-- Marcador principal -->
         <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40" style="position: relative; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.3));">
           <path d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z"
-                fill="#8B5CF6" stroke="#6D28D9" stroke-width="1"/>
+                fill="${color}" stroke="${borderColor}" stroke-width="1"/>
           <circle cx="16" cy="14" r="10" fill="white"/>
-          <text x="16" y="12" text-anchor="middle" font-family="Arial, sans-serif" font-size="7" font-weight="bold" fill="#8B5CF6">${labelsText}</text>
-          <text x="16" y="20" text-anchor="middle" font-family="Arial, sans-serif" font-size="6" fill="#6D28D9">edificio</text>
+          ${allCompleted
+            ? `<path d="M11 18L8 15l-1.4 1.4L11 20.8l8-8-1.4-1.4L11 18z" fill="${color}" transform="translate(4, 2) scale(0.8)"/>`
+            : `<text x="16" y="12" text-anchor="middle" font-family="Arial, sans-serif" font-size="7" font-weight="bold" fill="${color}">${labelsText}</text>
+               <text x="16" y="20" text-anchor="middle" font-family="Arial, sans-serif" font-size="6" fill="${borderColor}">edificio</text>`
+          }
         </svg>
       </div>
     </div>
@@ -112,10 +226,14 @@ function groupLocationsByCoordinates(locations: MapLocation[]): Map<string, MapL
 }
 
 // Crear elemento HTML para el marcador del conductor con animación de pulso
-function createDriverMarkerElement(heading?: number): HTMLElement {
+function createDriverMarkerElement(heading?: number, speed?: number): HTMLElement {
   // Heading viene en grados desde el Norte (0=N, 90=E, 180=S, 270=W)
   // El camión SVG apunta a la derecha (Este), así que restamos 90
   const rotation = (heading || 0) - 90;
+
+  // Velocidad en km/h (viene en m/s desde Android)
+  const speedKmh = speed ? Math.round(speed * 3.6) : null;
+  const isMoving = speedKmh !== null && speedKmh > 2;
 
   const container = document.createElement('div');
   container.innerHTML = `
@@ -143,6 +261,28 @@ function createDriverMarkerElement(heading?: number): HTMLElement {
         background: rgba(59, 130, 246, 0.4);
         animation: pulse-ring 2s ease-out infinite 0.5s;
       "></div>
+
+      <!-- Speed badge -->
+      ${speedKmh !== null ? `
+        <div style="
+          position: absolute;
+          top: -12px;
+          right: -12px;
+          min-width: 32px;
+          height: 20px;
+          padding: 0 6px;
+          background: ${isMoving ? '#22C55E' : '#6B7280'};
+          border-radius: 10px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          z-index: 20;
+          box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+          border: 2px solid white;
+        ">
+          <span style="color: white; font-size: 10px; font-weight: bold; white-space: nowrap;">${speedKmh} km/h</span>
+        </div>
+      ` : ''}
 
       <!-- Driver icon container -->
       <div style="
@@ -203,6 +343,18 @@ function createDriverMarkerElement(heading?: number): HTMLElement {
 // Type for AdvancedMarkerElement (since @types/google.maps might not have it yet)
 type AdvancedMarkerElement = google.maps.marker.AdvancedMarkerElement;
 
+// Helper para obtener lat/lng de LatLng o LatLngLiteral
+function getLatLng(pos: google.maps.LatLng | google.maps.LatLngLiteral | null | undefined): { lat: number; lng: number } | null {
+  if (!pos) return null;
+  if (typeof (pos as google.maps.LatLng).lat === 'function') {
+    return {
+      lat: (pos as google.maps.LatLng).lat(),
+      lng: (pos as google.maps.LatLng).lng()
+    };
+  }
+  return pos as google.maps.LatLngLiteral;
+}
+
 // Componente interno del mapa
 function MapComponent({
   showReturnLeg = false,
@@ -227,6 +379,8 @@ function MapComponent({
   const [searchMarker, setSearchMarker] = useState<AdvancedMarkerElement | null>(null);
   const [returnLegPolyline, setReturnLegPolyline] = useState<google.maps.Polyline | null>(null);
   const driverMarkerRef = useRef<AdvancedMarkerElement | null>(null);
+  const driverAnimationRef = useRef<number | null>(null); // Para cancelar animaciones
+  const lastDriverUpdateRef = useRef<number>(0); // Timestamp de última actualización
   const hasFitBounds = useRef(false);
   const lastLocationsKey = useRef<string>('');
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
@@ -356,6 +510,7 @@ function MapComponent({
         // Múltiples paradas en el mismo punto - crear marcador apilado
         processedCoords.add(coordKey);
         const labels = group.map(l => l.label || '?');
+        const statuses = group.map(l => l.status);
 
         // Guardar el grupo para referencia en el click
         stackedGroupsRef.current.set(coordKey, group);
@@ -363,7 +518,7 @@ function MapComponent({
         const marker = new AdvancedMarkerElement({
           position,
           map,
-          content: createStackedMarkerElement(labels, group.length),
+          content: createStackedMarkerElement(labels, group.length, statuses),
           title: `${group.length} paradas en este edificio: ${labels.join(', ')}`,
           zIndex: 100 // Por encima de marcadores normales
         });
@@ -452,7 +607,7 @@ function MapComponent({
         const marker = new AdvancedMarkerElement({
           position,
           map,
-          content: createMarkerElement(location.label || '?', location.type || 'stop', location.priority),
+          content: createMarkerElement(location.label || '?', location.type || 'stop', location.priority, location.status),
           title: location.label
         });
 
@@ -569,9 +724,14 @@ function MapComponent({
     );
   }, [map, showReturnLeg, returnLegDestination, locations]);
 
-  // Manejar marcador del conductor con animación suave
+  // Manejar marcador del conductor con interpolación suave
   useEffect(() => {
     if (!map || !driverLocation) {
+      // Cancelar animación en curso
+      if (driverAnimationRef.current) {
+        cancelAnimationFrame(driverAnimationRef.current);
+        driverAnimationRef.current = null;
+      }
       // Limpiar marcador si no hay ubicación
       if (driverMarkerRef.current) {
         driverMarkerRef.current.map = null;
@@ -581,55 +741,82 @@ function MapComponent({
     }
 
     const { AdvancedMarkerElement } = google.maps.marker;
-    const position = { lat: driverLocation.lat, lng: driverLocation.lng };
+    const targetPosition = { lat: driverLocation.lat, lng: driverLocation.lng };
+
+    // Calcular tiempo desde última actualización para ajustar duración de animación
+    const now = Date.now();
+    const timeSinceLastUpdate = lastDriverUpdateRef.current > 0
+      ? now - lastDriverUpdateRef.current
+      : 0;
+    lastDriverUpdateRef.current = now;
 
     if (driverMarkerRef.current) {
-      // Actualizar posición existente con animación suave
-      const currentPos = driverMarkerRef.current.position;
-      if (currentPos) {
-        // position puede ser LatLng (con métodos) o LatLngLiteral (con propiedades)
-        const startLat = typeof (currentPos as any).lat === 'function'
-          ? (currentPos as google.maps.LatLng).lat()
-          : (currentPos as google.maps.LatLngLiteral).lat;
-        const startLng = typeof (currentPos as any).lng === 'function'
-          ? (currentPos as google.maps.LatLng).lng()
-          : (currentPos as google.maps.LatLngLiteral).lng;
-        const endLat = driverLocation.lat;
-        const endLng = driverLocation.lng;
-        const duration = 1000; // 1 segundo
-        const startTime = Date.now();
-
-        const animate = () => {
-          const elapsed = Date.now() - startTime;
-          const progress = Math.min(elapsed / duration, 1);
-          // Easing function para movimiento suave
-          const easeProgress = 1 - Math.pow(1 - progress, 3);
-
-          const newLat = startLat + (endLat - startLat) * easeProgress;
-          const newLng = startLng + (endLng - startLng) * easeProgress;
-
-          if (driverMarkerRef.current) {
-            driverMarkerRef.current.position = { lat: newLat, lng: newLng };
-          }
-
-          if (progress < 1) {
-            requestAnimationFrame(animate);
-          }
-        };
-
-        animate();
-      } else {
-        driverMarkerRef.current.position = position;
+      // Cancelar animación anterior si existe
+      if (driverAnimationRef.current) {
+        cancelAnimationFrame(driverAnimationRef.current);
+        driverAnimationRef.current = null;
       }
 
-      // Actualizar el contenido si cambió el heading
-      driverMarkerRef.current.content = createDriverMarkerElement(driverLocation.heading);
+      const currentPos = getLatLng(driverMarkerRef.current.position);
+      if (currentPos) {
+        const startLat = currentPos.lat;
+        const startLng = currentPos.lng;
+        const endLat = targetPosition.lat;
+        const endLng = targetPosition.lng;
+
+        // Calcular distancia para determinar si vale la pena animar
+        const deltaLat = Math.abs(endLat - startLat);
+        const deltaLng = Math.abs(endLng - startLng);
+        const significantMove = deltaLat > 0.00001 || deltaLng > 0.00001;
+
+        if (significantMove) {
+          // Duración de animación: 80% del intervalo entre actualizaciones
+          // Mínimo 500ms, máximo 4000ms (para que no sea muy lento si hay lag)
+          // Si es la primera vez, usar 1500ms por defecto
+          const animDuration = timeSinceLastUpdate > 0
+            ? Math.min(4000, Math.max(500, timeSinceLastUpdate * 0.8))
+            : 1500;
+
+          const startTime = now;
+
+          const animate = () => {
+            const elapsed = Date.now() - startTime;
+            const progress = Math.min(elapsed / animDuration, 1);
+
+            // Easing cubic-out para movimiento suave y natural
+            const easeProgress = 1 - Math.pow(1 - progress, 3);
+
+            const newLat = startLat + (endLat - startLat) * easeProgress;
+            const newLng = startLng + (endLng - startLng) * easeProgress;
+
+            if (driverMarkerRef.current) {
+              driverMarkerRef.current.position = { lat: newLat, lng: newLng };
+            }
+
+            if (progress < 1 && driverMarkerRef.current) {
+              driverAnimationRef.current = requestAnimationFrame(animate);
+            } else {
+              driverAnimationRef.current = null;
+            }
+          };
+
+          driverAnimationRef.current = requestAnimationFrame(animate);
+        } else {
+          // Movimiento insignificante, solo actualizar posición
+          driverMarkerRef.current.position = targetPosition;
+        }
+      } else {
+        driverMarkerRef.current.position = targetPosition;
+      }
+
+      // Actualizar el contenido si cambió el heading o speed
+      driverMarkerRef.current.content = createDriverMarkerElement(driverLocation.heading, driverLocation.speed);
     } else {
       // Crear nuevo marcador
       const marker = new AdvancedMarkerElement({
-        position,
+        position: targetPosition,
         map,
-        content: createDriverMarkerElement(driverLocation.heading),
+        content: createDriverMarkerElement(driverLocation.heading, driverLocation.speed),
         title: 'Conductor en ruta',
         zIndex: 1000 // Por encima de otros marcadores
       });
@@ -641,6 +828,14 @@ function MapComponent({
 
       driverMarkerRef.current = marker;
     }
+
+    // Cleanup: cancelar animación al desmontar o cambiar dependencias
+    return () => {
+      if (driverAnimationRef.current) {
+        cancelAnimationFrame(driverAnimationRef.current);
+        driverAnimationRef.current = null;
+      }
+    };
   }, [map, driverLocation]);
 
   // Manejar focus/zoom a una ubicación específica

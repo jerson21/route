@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { MapPin, Plus, Trash2, Check, Loader2, Clock, Edit2, Webhook, Send, Eye, EyeOff, Bell, Users, Package, Navigation, Smartphone, Key, Copy, CheckCircle } from 'lucide-react';
+import { MapPin, Plus, Trash2, Check, Loader2, Clock, Edit2, Webhook, Send, Eye, EyeOff, Bell, Users, Package, Navigation, Smartphone, Key, Copy, CheckCircle, Cloud, BarChart3, RefreshCw } from 'lucide-react';
 import { api } from '../../services/api';
 import { AddressSearch } from '../../components/search/AddressSearch';
 
@@ -46,7 +46,7 @@ interface ApiKeyItem {
   createdAt: string;
 }
 
-type SettingsSection = 'depots' | 'notifications' | 'webhook' | 'drivers' | 'delivery' | 'apikeys';
+type SettingsSection = 'depots' | 'notifications' | 'webhook' | 'drivers' | 'delivery' | 'apikeys' | 'google-api';
 
 const menuItems: { id: SettingsSection; label: string; icon: typeof MapPin; description: string }[] = [
   { id: 'depots', label: 'Depots', icon: MapPin, description: 'Puntos de salida' },
@@ -55,6 +55,7 @@ const menuItems: { id: SettingsSection; label: string; icon: typeof MapPin; desc
   { id: 'notifications', label: 'Notificaciones', icon: Bell, description: 'Ventana ETA' },
   { id: 'webhook', label: 'Webhook', icon: Webhook, description: 'Integraciones' },
   { id: 'apikeys', label: 'API Keys', icon: Key, description: 'Acceso externo' },
+  { id: 'google-api', label: 'Google APIs', icon: Cloud, description: 'Uso y costos' },
 ];
 
 export function SettingsPage() {
@@ -113,6 +114,18 @@ export function SettingsPage() {
   const [creatingApiKey, setCreatingApiKey] = useState(false);
   const [createdApiKey, setCreatedApiKey] = useState<string | null>(null);
   const [copiedKey, setCopiedKey] = useState(false);
+
+  // Google API Usage state
+  const [googleApiStats, setGoogleApiStats] = useState<{
+    today: { calls: number; cost: number };
+    week: { calls: number; cost: number };
+    month: { calls: number; cost: number };
+  } | null>(null);
+  const [googleApiDaily, setGoogleApiDaily] = useState<{ date: string; calls: number; cost: number }[]>([]);
+  const [googleApiLogs, setGoogleApiLogs] = useState<any[]>([]);
+  const [loadingGoogleApi, setLoadingGoogleApi] = useState(false);
+  const [googleApiPage, _setGoogleApiPage] = useState(1);
+  const [googleApiTotal, setGoogleApiTotal] = useState(0);
 
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY || '';
 
@@ -239,6 +252,26 @@ export function SettingsPage() {
     }
   };
 
+  // Fetch Google API usage stats
+  const fetchGoogleApiStats = async () => {
+    try {
+      setLoadingGoogleApi(true);
+      const [statsRes, dailyRes, logsRes] = await Promise.all([
+        api.get('/google-usage/quick-stats'),
+        api.get('/google-usage/daily'),
+        api.get('/google-usage/logs', { params: { page: googleApiPage, limit: 20 } }),
+      ]);
+      setGoogleApiStats(statsRes.data.data);
+      setGoogleApiDaily(dailyRes.data.data);
+      setGoogleApiLogs(logsRes.data.data);
+      setGoogleApiTotal(logsRes.data.pagination.total);
+    } catch (error) {
+      console.error('Error fetching Google API stats:', error);
+    } finally {
+      setLoadingGoogleApi(false);
+    }
+  };
+
   // Create API key
   const handleCreateApiKey = async () => {
     if (!newApiKeyName) return;
@@ -312,6 +345,13 @@ export function SettingsPage() {
       setDriverPreferences(null);
     }
   }, [selectedDriver]);
+
+  // Load Google API stats when section is selected
+  useEffect(() => {
+    if (activeSection === 'google-api' && !googleApiStats) {
+      fetchGoogleApiStats();
+    }
+  }, [activeSection]);
 
   // Depot handlers
   const handleAddDepot = async () => {
@@ -1108,6 +1148,161 @@ export function SettingsPage() {
     </div>
   );
 
+  const renderGoogleApiSection = () => (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900">Uso de Google APIs</h2>
+          <p className="text-sm text-gray-500">Monitoreo de llamadas y costos estimados</p>
+        </div>
+        <button
+          onClick={fetchGoogleApiStats}
+          disabled={loadingGoogleApi}
+          className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${loadingGoogleApi ? 'animate-spin' : ''}`} />
+          Actualizar
+        </button>
+      </div>
+
+      {loadingGoogleApi && !googleApiStats ? (
+        <div className="p-8 text-center">
+          <Loader2 className="w-6 h-6 animate-spin mx-auto text-gray-400" />
+        </div>
+      ) : googleApiStats ? (
+        <>
+          {/* Stats Cards */}
+          <div className="grid grid-cols-4 gap-4">
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center gap-2 text-gray-500 mb-1">
+                <BarChart3 className="w-4 h-4" />
+                <span className="text-sm">Hoy</span>
+              </div>
+              <div className="text-2xl font-semibold text-gray-900">{googleApiStats.today.calls}</div>
+              <div className="text-sm text-gray-500">${googleApiStats.today.cost.toFixed(3)}</div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center gap-2 text-gray-500 mb-1">
+                <BarChart3 className="w-4 h-4" />
+                <span className="text-sm">Esta Semana</span>
+              </div>
+              <div className="text-2xl font-semibold text-gray-900">{googleApiStats.week.calls}</div>
+              <div className="text-sm text-gray-500">${googleApiStats.week.cost.toFixed(3)}</div>
+            </div>
+            <div className="bg-white rounded-xl border border-gray-200 p-4">
+              <div className="flex items-center gap-2 text-gray-500 mb-1">
+                <BarChart3 className="w-4 h-4" />
+                <span className="text-sm">Este Mes</span>
+              </div>
+              <div className="text-2xl font-semibold text-gray-900">{googleApiStats.month.calls}</div>
+              <div className="text-sm text-gray-500">${googleApiStats.month.cost.toFixed(3)}</div>
+            </div>
+            <div className="bg-white rounded-xl border border-blue-200 p-4 bg-blue-50">
+              <div className="flex items-center gap-2 text-blue-600 mb-1">
+                <Cloud className="w-4 h-4" />
+                <span className="text-sm">Costo Mes</span>
+              </div>
+              <div className="text-2xl font-semibold text-blue-700">${googleApiStats.month.cost.toFixed(2)}</div>
+              <div className="text-sm text-blue-600">USD estimado</div>
+            </div>
+          </div>
+
+          {/* Daily Chart - Simple bar visualization */}
+          {googleApiDaily.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-6">
+              <h3 className="font-medium text-gray-900 mb-4">Llamadas por Dia (ultimos 30 dias)</h3>
+              <div className="flex items-end gap-1 h-32">
+                {googleApiDaily.slice(-30).map((day) => {
+                  const maxCalls = Math.max(...googleApiDaily.map(d => d.calls), 1);
+                  const height = (day.calls / maxCalls) * 100;
+                  return (
+                    <div
+                      key={day.date}
+                      className="flex-1 bg-blue-500 rounded-t hover:bg-blue-600 transition-colors cursor-pointer group relative"
+                      style={{ height: `${Math.max(height, 2)}%` }}
+                      title={`${day.date}: ${day.calls} llamadas ($${day.cost.toFixed(3)})`}
+                    >
+                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 whitespace-nowrap pointer-events-none">
+                        {day.date}: {day.calls}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="flex justify-between text-xs text-gray-400 mt-2">
+                <span>{googleApiDaily.length > 0 ? googleApiDaily[0].date : ''}</span>
+                <span>{googleApiDaily.length > 0 ? googleApiDaily[googleApiDaily.length - 1].date : ''}</span>
+              </div>
+            </div>
+          )}
+
+          {/* Recent Logs */}
+          <div className="bg-white rounded-xl border border-gray-200">
+            <div className="px-6 py-4 border-b border-gray-200">
+              <h3 className="font-medium text-gray-900">Ultimas Llamadas</h3>
+              <p className="text-sm text-gray-500">{googleApiTotal} registros totales</p>
+            </div>
+            {googleApiLogs.length === 0 ? (
+              <div className="p-8 text-center text-gray-500">
+                No hay registros de llamadas a APIs
+              </div>
+            ) : (
+              <div className="divide-y divide-gray-200">
+                {googleApiLogs.map((log) => (
+                  <div key={log.id} className="px-6 py-3 flex items-center gap-4">
+                    <div className={`px-2 py-1 rounded text-xs font-medium ${
+                      log.apiType === 'GEOCODING' ? 'bg-green-100 text-green-700' :
+                      log.apiType === 'DIRECTIONS' ? 'bg-blue-100 text-blue-700' :
+                      'bg-purple-100 text-purple-700'
+                    }`}>
+                      {log.apiType}
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-sm text-gray-900">{log.source || 'Unknown'}</div>
+                      <div className="text-xs text-gray-500">
+                        {log.responseStatus} - {log.responseTimeMs}ms
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm text-gray-900">${log.estimatedCost.toFixed(4)}</div>
+                      <div className="text-xs text-gray-500">
+                        {new Date(log.createdAt).toLocaleString('es-CL')}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Pricing Info */}
+          <div className="bg-gray-50 rounded-lg p-4">
+            <h4 className="font-medium text-gray-900 mb-2">Precios de Referencia (USD)</h4>
+            <div className="grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <span className="text-gray-600">Geocoding:</span>
+                <span className="ml-2 font-mono">$0.005/llamada</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Directions:</span>
+                <span className="ml-2 font-mono">$0.005-0.01/llamada</span>
+              </div>
+              <div>
+                <span className="text-gray-600">Distance Matrix:</span>
+                <span className="ml-2 font-mono">$0.005/elemento</span>
+              </div>
+            </div>
+          </div>
+        </>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 p-8 text-center">
+          <Cloud className="w-12 h-12 mx-auto text-gray-300 mb-4" />
+          <p className="text-gray-500">No hay datos de uso disponibles</p>
+        </div>
+      )}
+    </div>
+  );
+
   return (
     <div className="h-full flex bg-gray-50">
       {/* Panel Izquierdo - Lista de configuraciones */}
@@ -1146,6 +1341,7 @@ export function SettingsPage() {
           {activeSection === 'notifications' && renderNotificationsSection()}
           {activeSection === 'webhook' && renderWebhookSection()}
           {activeSection === 'apikeys' && renderApiKeysSection()}
+          {activeSection === 'google-api' && renderGoogleApiSection()}
         </div>
       </div>
 

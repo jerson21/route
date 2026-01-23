@@ -11,6 +11,7 @@ import { settingsRoutes } from './routes/settings.routes.js';
 import { uploadsRoutes } from './routes/uploads.routes.js';
 import { paymentsRoutes } from './routes/payments.routes.js';
 import { apiKeysRoutes } from './routes/apikeys.routes.js';
+import { googleApiUsageRoutes } from './routes/googleApiUsage.routes.js';
 
 const app = express();
 
@@ -79,6 +80,7 @@ app.use('/api/v1/uploads', uploadsRoutes);
 app.use('/api/v1/payments', paymentsRoutes);
 app.use('/api/v1/stops', paymentsRoutes);  // Alias para webhook PHP: POST /stops/:id/payment-received
 app.use('/api/v1/api-keys', apiKeysRoutes);
+app.use('/api/v1/google-usage', googleApiUsageRoutes);
 
 // Error handler (must be last)
 app.use(errorHandler);

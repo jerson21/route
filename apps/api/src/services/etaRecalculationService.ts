@@ -7,6 +7,7 @@ import {
   WebhookPayload,
 } from './webhookService';
 import { getWebhookConfig } from '../routes/settings.routes.js';
+import { trackGoogleApiCall } from './googleApiTracker.service.js';
 
 const prisma = new PrismaClient();
 
@@ -231,6 +232,7 @@ async function getTravelTime(
 
     url.searchParams.set('key', apiKey);
 
+    const startTime = Date.now();
     const response = await fetch(url.toString());
     const data = await response.json() as {
       status: string;
@@ -241,6 +243,19 @@ async function getTravelTime(
         }>;
       }>;
     };
+    const responseTimeMs = Date.now() - startTime;
+
+    // Track API call
+    trackGoogleApiCall({
+      apiType: 'DIRECTIONS',
+      endpoint: 'directions/json',
+      requestParams: { mode: 'driving', hasTraffic: true },
+      responseStatus: data.status,
+      httpStatus: response.status,
+      responseTimeMs,
+      useTraffic: true,
+      source: 'etaRecalculationService.getTravelTime',
+    });
 
     if (data.status === 'OK' && data.routes?.[0]?.legs?.[0]) {
       const leg = data.routes[0].legs[0];

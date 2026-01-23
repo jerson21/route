@@ -1093,6 +1093,7 @@ export function RouteDetailPage() {
     label: string;
     type: 'origin' | 'stop' | 'destination';
     priority?: number;
+    status?: 'PENDING' | 'IN_TRANSIT' | 'COMPLETED' | 'SKIPPED' | 'FAILED';
   }> = route.stops
     .filter(stop => stop.address.latitude && stop.address.longitude)
     .map((stop, index) => ({
@@ -1101,7 +1102,8 @@ export function RouteDetailPage() {
       lng: stop.address.longitude!,
       label: String(index + 1),
       type: 'stop' as const,
-      priority: stop.priority
+      priority: stop.priority,
+      status: stop.status as 'PENDING' | 'IN_TRANSIT' | 'COMPLETED' | 'SKIPPED' | 'FAILED'
     }));
 
   // Agregar depot como punto de inicio

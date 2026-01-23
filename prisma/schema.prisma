@@ -66,6 +66,12 @@ enum TransferStatus {
   EXPIRED   // Timeout sin verificación
 }
 
+enum GoogleApiType {
+  GEOCODING
+  DIRECTIONS
+  DISTANCE_MATRIX
+}
+
 model User {
   id           String    @id @default(uuid())
   email        String    @unique
@@ -393,4 +399,35 @@ model Payment {
   @@index([customerRut])
   @@index([method])
   @@map("payments")
+}
+
+// Google API Usage Tracking
+model GoogleApiUsage {
+  id             String        @id @default(uuid())
+  apiType        GoogleApiType @map("api_type")
+  endpoint       String
+
+  // Request
+  requestParams  Json          @map("request_params")
+
+  // Response
+  responseStatus String        @map("response_status")
+  httpStatus     Int           @map("http_status")
+  responseTimeMs Int           @map("response_time_ms")
+
+  // Cost tracking
+  elementCount   Int           @default(1) @map("element_count")
+  estimatedCost  Decimal       @db.Decimal(10, 6) @map("estimated_cost")
+
+  // Context
+  routeId        String?       @map("route_id")
+  userId         String?       @map("user_id")
+  source         String?
+
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  @@index([apiType])
+  @@index([createdAt])
+  @@index([routeId])
+  @@map("google_api_usage")
 }

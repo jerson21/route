@@ -1,4 +1,5 @@
 import { env } from '../config/env.js';
+import { trackGoogleApiCall } from './googleApiTracker.service.js';
 
 interface GeocodeResult {
   latitude: number;
@@ -37,8 +38,21 @@ export async function geocodeAddress(address: string): Promise<GeocodeResult> {
     const encodedAddress = encodeURIComponent(address);
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodedAddress}&key=${env.GOOGLE_MAPS_API_KEY}`;
 
+    const startTime = Date.now();
     const response = await fetch(url);
     const data = await response.json() as GoogleGeocodeResponse;
+    const responseTimeMs = Date.now() - startTime;
+
+    // Track API call
+    trackGoogleApiCall({
+      apiType: 'GEOCODING',
+      endpoint: 'geocode/json',
+      requestParams: { address },
+      responseStatus: data.status,
+      httpStatus: response.status,
+      responseTimeMs,
+      source: 'geocoding.service',
+    });
 
     if (data.status === 'OK' && data.results.length > 0) {
       const result = data.results[0];
