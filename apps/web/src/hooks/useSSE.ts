@@ -3,8 +3,8 @@ import { getAccessToken, onTokenChange, refreshTokenIfNeeded } from '../services
 
 const API_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
-// How often to proactively refresh token to keep SSE alive (10 minutes)
-const TOKEN_REFRESH_INTERVAL = 10 * 60 * 1000;
+// How often to proactively refresh token to keep SSE alive (50 minutes, since token now lasts 4 hours)
+const TOKEN_REFRESH_INTERVAL = 50 * 60 * 1000;
 
 // How long to wait before reconnecting after an error
 const RECONNECT_DELAY = 3000;
@@ -34,9 +34,9 @@ interface UseSSEReturn {
  * token refresh and reconnection.
  *
  * This hook solves the problem of SSE connections dying when the access token
- * expires (15 minutes) by:
+ * expires by:
  *
- * 1. Proactively refreshing the token every 10 minutes
+ * 1. Proactively refreshing the token every 50 minutes (token lasts 4 hours)
  * 2. Reconnecting with a fresh token when the connection dies
  * 3. Listening for token changes from the axios interceptor
  *
@@ -56,6 +56,20 @@ export function useSSE(
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tokenRefreshIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isManuallyClosedRef = useRef(false);
+
+  // Use refs for callbacks to avoid reconnection on every render
+  const onOpenRef = useRef(onOpen);
+  const onErrorRef = useRef(onError);
+  const onMessageRef = useRef(onMessage);
+  const eventHandlersRef = useRef(eventHandlers);
+
+  // Keep refs updated
+  useEffect(() => {
+    onOpenRef.current = onOpen;
+    onErrorRef.current = onError;
+    onMessageRef.current = onMessage;
+    eventHandlersRef.current = eventHandlers;
+  });
 
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,7 +104,7 @@ export function useSSE(
       setIsConnected(true);
       setError(null);
       reconnectAttemptsRef.current = 0;
-      onOpen?.();
+      onOpenRef.current?.();
     };
 
     eventSource.onerror = (event) => {
@@ -107,26 +121,27 @@ export function useSSE(
         // If readyState is CONNECTING, EventSource will auto-retry
       }
 
-      onError?.(event);
+      onErrorRef.current?.(event);
     };
 
     eventSource.onmessage = (event) => {
-      onMessage?.(event);
+      onMessageRef.current?.(event);
     };
 
-    // Register all custom event handlers
-    Object.entries(eventHandlers).forEach(([eventName, handler]) => {
+    // Register all custom event handlers using ref (to get latest handlers)
+    Object.entries(eventHandlersRef.current).forEach(([eventName, handler]) => {
       eventSource.addEventListener(eventName, (event: MessageEvent) => {
         try {
           const data = event.data ? JSON.parse(event.data) : null;
-          handler(data);
+          // Use the handler from the ref to always call the latest version
+          eventHandlersRef.current[eventName]?.(data);
         } catch (e) {
           // If JSON parsing fails, pass raw data
-          handler(event.data);
+          eventHandlersRef.current[eventName]?.(event.data);
         }
       });
     });
-  }, [endpoint, eventHandlers, enabled, onOpen, onError, onMessage]);
+  }, [endpoint, enabled]); // Only reconnect when endpoint or enabled changes
 
   // Handle reconnection with exponential backoff
   const handleReconnect = useCallback(async () => {
@@ -170,13 +185,14 @@ export function useSSE(
     connect();
   }, [connect]);
 
-  // Setup token refresh interval
+  // Setup token refresh interval - uses ref to avoid recreating interval
   useEffect(() => {
     if (!enabled) return;
 
     // Refresh token periodically to keep SSE connection alive
     tokenRefreshIntervalRef.current = setInterval(async () => {
-      if (isConnected && eventSourceRef.current) {
+      // Check connection state directly from ref, not from state
+      if (eventSourceRef.current && eventSourceRef.current.readyState === EventSource.OPEN) {
         console.log('[SSE] Proactive token refresh...');
         try {
           const newToken = await refreshTokenIfNeeded();
@@ -197,7 +213,7 @@ export function useSSE(
         clearInterval(tokenRefreshIntervalRef.current);
       }
     };
-  }, [enabled, isConnected, connect]);
+  }, [enabled, connect]);
 
   // Listen for token changes from axios interceptor
   useEffect(() => {
