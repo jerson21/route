@@ -40,52 +40,54 @@ interface RouteMapProps {
 const SANTIAGO_CENTER = { lat: -33.4489, lng: -70.6693 };
 
 // Crear elemento HTML para AdvancedMarkerElement
+// Simplificado: siempre muestra el número, el color indica el estado
 function createMarkerElement(
   label: string,
   type: 'origin' | 'stop' | 'destination' = 'stop',
   priority?: number,
   status?: 'PENDING' | 'IN_TRANSIT' | 'COMPLETED' | 'SKIPPED' | 'FAILED'
 ): HTMLElement {
-  // Determinar colores según estado
+  // Determinar colores según tipo y estado
   let color: string;
   let borderColor: string;
-  let iconContent = ''; // Contenido especial para completados/saltados
+  let textColor: string;
 
   if (type === 'origin') {
     color = '#22C55E';
     borderColor = '#16A34A';
+    textColor = '#16A34A';
   } else if (type === 'destination') {
     color = '#EF4444';
     borderColor = '#DC2626';
+    textColor = '#DC2626';
   } else {
     // Para paradas, el color depende del estado
     switch (status) {
       case 'COMPLETED':
         color = '#22C55E'; // Verde
         borderColor = '#16A34A';
-        // Checkmark icon
-        iconContent = `<path d="M11 18L8 15l-1.4 1.4L11 20.8l8-8-1.4-1.4L11 18z" fill="${color}" transform="translate(4, 2) scale(0.8)"/>`;
+        textColor = '#16A34A';
         break;
       case 'SKIPPED':
       case 'FAILED':
         color = '#9CA3AF'; // Gris
         borderColor = '#6B7280';
-        // X icon
-        iconContent = `<path d="M12 10.6L17.4 5.2 19 6.8 13.4 12l5.6 5.2-1.6 1.6-5.4-5.6-5.4 5.6-1.6-1.6 5.6-5.2-5.6-5.2 1.6-1.6 5.4 5.6z" fill="${color}" transform="translate(4, 2) scale(0.7)"/>`;
+        textColor = '#6B7280';
         break;
       case 'IN_TRANSIT':
         color = '#F59E0B'; // Amarillo/Naranja
         borderColor = '#D97706';
+        textColor = '#D97706';
         break;
       default: // PENDING
-        color = '#4285F4';
-        borderColor = '#1A73E8';
+        color = '#3B82F6'; // Azul
+        borderColor = '#2563EB';
+        textColor = '#2563EB';
     }
   }
 
   const hasPriority = priority && priority > 0;
   const isInTransit = status === 'IN_TRANSIT';
-  const showLabel = status !== 'COMPLETED' && status !== 'SKIPPED' && status !== 'FAILED';
 
   const container = document.createElement('div');
   container.innerHTML = `
@@ -96,8 +98,8 @@ function createMarkerElement(
           top: 50%;
           left: 50%;
           transform: translate(-50%, -70%);
-          width: 50px;
-          height: 50px;
+          width: 44px;
+          height: 44px;
           border-radius: 50%;
           background: rgba(245, 158, 11, 0.3);
           animation: pulse-stop 1.5s ease-out infinite;
@@ -109,17 +111,14 @@ function createMarkerElement(
           }
         </style>
       ` : ''}
-      ${hasPriority ? `<div style="position: absolute; top: -8px; right: -8px; width: 16px; height: 16px; background: #EF4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 10; box-shadow: 0 1px 3px rgba(0,0,0,0.3);">
-        <span style="color: white; font-size: 9px; font-weight: bold;">!</span>
+      ${hasPriority ? `<div style="position: absolute; top: -6px; right: -6px; width: 14px; height: 14px; background: #EF4444; border-radius: 50%; display: flex; align-items: center; justify-content: center; z-index: 10; box-shadow: 0 1px 2px rgba(0,0,0,0.3);">
+        <span style="color: white; font-size: 8px; font-weight: bold;">!</span>
       </div>` : ''}
-      <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40" style="filter: drop-shadow(0 2px 3px rgba(0,0,0,0.3));">
-        <path d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z"
+      <svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36" style="filter: drop-shadow(0 2px 2px rgba(0,0,0,0.25));">
+        <path d="M14 0C6.268 0 0 6.268 0 14c0 7.732 14 22 14 22s14-14.268 14-22C28 6.268 21.732 0 14 0z"
               fill="${color}" stroke="${borderColor}" stroke-width="1"/>
-        <circle cx="16" cy="14" r="10" fill="white"/>
-        ${showLabel
-          ? `<text x="16" y="18" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="${color}">${label}</text>`
-          : iconContent
-        }
+        <circle cx="14" cy="12" r="9" fill="white"/>
+        <text x="14" y="16" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" font-weight="bold" fill="${textColor}">${label}</text>
       </svg>
     </div>
   `;
@@ -127,14 +126,16 @@ function createMarkerElement(
 }
 
 // Crear elemento HTML para marcador apilado (múltiples paradas en el mismo punto)
+// Simplificado: muestra los números de parada y badge con progreso
 function createStackedMarkerElement(
   labels: string[],
   count: number,
   statuses?: Array<'PENDING' | 'IN_TRANSIT' | 'COMPLETED' | 'SKIPPED' | 'FAILED' | undefined>
 ): HTMLElement {
   const container = document.createElement('div');
-  // Mostrar los números de las paradas (ej: "01,02,03")
-  const labelsText = labels.slice(0, 3).join(',') + (labels.length > 3 ? '...' : '');
+
+  // Mostrar los números separados por coma (ej: "1,2,3")
+  const labelsText = labels.slice(0, 3).join(',') + (labels.length > 3 ? '..' : '');
 
   // Calcular estadísticas de estado
   const completed = statuses?.filter(s => s === 'COMPLETED').length || 0;
@@ -145,19 +146,24 @@ function createStackedMarkerElement(
   // Color según estado del grupo
   let color = '#8B5CF6'; // Púrpura por defecto
   let borderColor = '#6D28D9';
+  let textColor = '#6D28D9';
+
   if (allCompleted) {
-    color = '#22C55E'; // Verde si todos completados
+    color = '#22C55E';
     borderColor = '#16A34A';
+    textColor = '#16A34A';
   } else if (hasInTransit) {
-    color = '#F59E0B'; // Naranja si alguno en tránsito
+    color = '#F59E0B';
     borderColor = '#D97706';
+    textColor = '#D97706';
   } else if (completed > 0) {
-    color = '#3B82F6'; // Azul si algunos completados
-    borderColor = '#1D4ED8';
+    color = '#3B82F6';
+    borderColor = '#2563EB';
+    textColor = '#2563EB';
   }
 
-  // Texto de estado (ej: "2/3")
-  const statusText = completed > 0 ? `${completed}/${count}` : `${count}`;
+  // Badge: muestra progreso si hay completados, sino solo cantidad
+  const badgeText = completed > 0 ? `${completed}/${count}` : `${count}`;
 
   container.innerHTML = `
     <div style="position: relative; cursor: pointer;">
@@ -167,8 +173,8 @@ function createStackedMarkerElement(
           top: 50%;
           left: 50%;
           transform: translate(-50%, -70%);
-          width: 50px;
-          height: 50px;
+          width: 44px;
+          height: 44px;
           border-radius: 50%;
           background: rgba(245, 158, 11, 0.3);
           animation: pulse-stack 1.5s ease-out infinite;
@@ -181,28 +187,19 @@ function createStackedMarkerElement(
         </style>
       ` : ''}
       <!-- Badge con cantidad/progreso -->
-      <div style="position: absolute; top: -10px; right: -10px; min-width: 22px; height: 22px; padding: 0 4px; background: ${allCompleted ? '#22C55E' : (completed > 0 ? '#3B82F6' : color)}; border-radius: 11px; display: flex; align-items: center; justify-content: center; z-index: 10; box-shadow: 0 2px 4px rgba(0,0,0,0.3); border: 2px solid white;">
-        <span style="color: white; font-size: 10px; font-weight: bold;">${statusText}</span>
+      <div style="position: absolute; top: -8px; right: -8px; min-width: 18px; height: 18px; padding: 0 4px; background: ${color}; border-radius: 9px; display: flex; align-items: center; justify-content: center; z-index: 10; box-shadow: 0 1px 3px rgba(0,0,0,0.3); border: 2px solid white;">
+        <span style="color: white; font-size: 9px; font-weight: bold;">${badgeText}</span>
       </div>
-      <!-- Marcadores apilados visualmente -->
+      <!-- Marcador con efecto de stack -->
       <div style="position: relative;">
-        <!-- Sombra de fondo (simula stack) -->
-        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40" style="position: absolute; left: 4px; top: 4px; opacity: 0.3;">
-          <path d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z" fill="${color}"/>
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36" style="position: absolute; left: 3px; top: 3px; opacity: 0.25;">
+          <path d="M14 0C6.268 0 0 6.268 0 14c0 7.732 14 22 14 22s14-14.268 14-22C28 6.268 21.732 0 14 0z" fill="${color}"/>
         </svg>
-        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40" style="position: absolute; left: 2px; top: 2px; opacity: 0.5;">
-          <path d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z" fill="${color}"/>
-        </svg>
-        <!-- Marcador principal -->
-        <svg xmlns="http://www.w3.org/2000/svg" width="32" height="40" viewBox="0 0 32 40" style="position: relative; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.3));">
-          <path d="M16 0C7.163 0 0 7.163 0 16c0 8.837 16 24 16 24s16-15.163 16-24C32 7.163 24.837 0 16 0z"
+        <svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36" style="position: relative; filter: drop-shadow(0 2px 2px rgba(0,0,0,0.25));">
+          <path d="M14 0C6.268 0 0 6.268 0 14c0 7.732 14 22 14 22s14-14.268 14-22C28 6.268 21.732 0 14 0z"
                 fill="${color}" stroke="${borderColor}" stroke-width="1"/>
-          <circle cx="16" cy="14" r="10" fill="white"/>
-          ${allCompleted
-            ? `<path d="M11 18L8 15l-1.4 1.4L11 20.8l8-8-1.4-1.4L11 18z" fill="${color}" transform="translate(4, 2) scale(0.8)"/>`
-            : `<text x="16" y="12" text-anchor="middle" font-family="Arial, sans-serif" font-size="7" font-weight="bold" fill="${color}">${labelsText}</text>
-               <text x="16" y="20" text-anchor="middle" font-family="Arial, sans-serif" font-size="6" fill="${borderColor}">edificio</text>`
-          }
+          <circle cx="14" cy="12" r="9" fill="white"/>
+          <text x="14" y="15" text-anchor="middle" font-family="Arial, sans-serif" font-size="8" font-weight="bold" fill="${textColor}">${labelsText}</text>
         </svg>
       </div>
     </div>
