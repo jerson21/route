@@ -2505,6 +2505,12 @@ router.post('/:id/stops/:stopId/in-transit', async (req: Request, res: Response,
       throw new AppError(404, 'Parada no encontrada en esta ruta');
     }
 
+    // Idempotent: if already IN_TRANSIT, return current state
+    if (stop.status === 'IN_TRANSIT') {
+      res.json({ success: true, data: stop });
+      return;
+    }
+
     if (stop.status !== 'PENDING') {
       throw new AppError(400, 'Solo se pueden marcar en tránsito paradas pendientes');
     }
