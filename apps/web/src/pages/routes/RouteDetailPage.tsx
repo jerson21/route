@@ -1053,36 +1053,43 @@ export function RouteDetailPage() {
     );
   }
 
-  const mapLocations: Array<{
-    id: string;
-    lat: number;
-    lng: number;
-    label: string;
-    type: 'origin' | 'stop' | 'destination';
-    priority?: number;
-    status?: 'PENDING' | 'IN_TRANSIT' | 'COMPLETED' | 'SKIPPED' | 'FAILED';
-  }> = route.stops
-    .filter(stop => stop.address.latitude && stop.address.longitude)
-    .map((stop, index) => ({
-      id: stop.id,
-      lat: stop.address.latitude!,
-      lng: stop.address.longitude!,
-      label: String(index + 1),
-      type: 'stop' as const,
-      priority: stop.priority,
-      status: stop.status as 'PENDING' | 'IN_TRANSIT' | 'COMPLETED' | 'SKIPPED' | 'FAILED'
-    }));
+  // Memoizar mapLocations para evitar llamadas innecesarias a Google Directions API
+  // Sin esto, cada actualización de ubicación del conductor causaba un re-render
+  // que recreaba el array y disparaba el useEffect que dibuja la ruta
+  const mapLocations = useMemo(() => {
+    const locations: Array<{
+      id: string;
+      lat: number;
+      lng: number;
+      label: string;
+      type: 'origin' | 'stop' | 'destination';
+      priority?: number;
+      status?: 'PENDING' | 'IN_TRANSIT' | 'COMPLETED' | 'SKIPPED' | 'FAILED';
+    }> = route.stops
+      .filter(stop => stop.address.latitude && stop.address.longitude)
+      .map((stop, index) => ({
+        id: stop.id,
+        lat: stop.address.latitude!,
+        lng: stop.address.longitude!,
+        label: String(index + 1),
+        type: 'stop' as const,
+        priority: stop.priority,
+        status: stop.status as 'PENDING' | 'IN_TRANSIT' | 'COMPLETED' | 'SKIPPED' | 'FAILED'
+      }));
 
-  // Agregar depot como punto de inicio
-  if (route.depot) {
-    mapLocations.unshift({
-      id: 'depot',
-      lat: route.depot.latitude,
-      lng: route.depot.longitude,
-      label: 'D',
-      type: 'origin'
-    });
-  }
+    // Agregar depot como punto de inicio
+    if (route.depot) {
+      locations.unshift({
+        id: 'depot',
+        lat: route.depot.latitude,
+        lng: route.depot.longitude,
+        label: 'D',
+        type: 'origin'
+      });
+    }
+
+    return locations;
+  }, [route.stops, route.depot]);
 
   const isDraft = route.status === 'DRAFT';
   const canEdit = route.status === 'DRAFT' || route.status === 'SCHEDULED' || route.status === 'IN_PROGRESS';
