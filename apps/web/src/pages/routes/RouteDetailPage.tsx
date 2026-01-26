@@ -1029,34 +1029,12 @@ export function RouteDetailPage() {
     addToast('Simulación detenida', 'info');
   };
 
-  if (isLoading) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
-
-  if (error || !route) {
-    return (
-      <div className="h-full flex items-center justify-center">
-        <div className="text-center">
-          <p className="text-red-600 mb-4">{error || 'Ruta no encontrada'}</p>
-          <button
-            onClick={() => navigate('/routes')}
-            className="text-blue-600 hover:text-blue-800"
-          >
-            Volver a rutas
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   // Memoizar mapLocations para evitar llamadas innecesarias a Google Directions API
   // Sin esto, cada actualización de ubicación del conductor causaba un re-render
   // que recreaba el array y disparaba el useEffect que dibuja la ruta
   const mapLocations = useMemo(() => {
+    if (!route) return [];
+
     const locations: Array<{
       id: string;
       lat: number;
@@ -1089,7 +1067,31 @@ export function RouteDetailPage() {
     }
 
     return locations;
-  }, [route.stops, route.depot]);
+  }, [route]);
+
+  if (isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
+      </div>
+    );
+  }
+
+  if (error || !route) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-red-600 mb-4">{error || 'Ruta no encontrada'}</p>
+          <button
+            onClick={() => navigate('/routes')}
+            className="text-blue-600 hover:text-blue-800"
+          >
+            Volver a rutas
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   const isDraft = route.status === 'DRAFT';
   const canEdit = route.status === 'DRAFT' || route.status === 'SCHEDULED' || route.status === 'IN_PROGRESS';
