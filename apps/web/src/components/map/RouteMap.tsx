@@ -380,6 +380,8 @@ function MapComponent({
   const lastDriverUpdateRef = useRef<number>(0); // Timestamp de última actualización
   const hasFitBounds = useRef(false);
   const lastLocationsKey = useRef<string>('');
+  const lastRouteKey = useRef<string>(''); // Para evitar llamadas innecesarias a Directions API
+  const lastReturnLegKey = useRef<string>(''); // Para evitar llamadas innecesarias a Directions API (return leg)
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
   const stackedGroupsRef = useRef<Map<string, MapLocation[]>>(new Map());
 
@@ -650,6 +652,14 @@ function MapComponent({
       return;
     }
 
+    // Crear key basada solo en las coordenadas (no en status u otros campos)
+    // para evitar llamadas innecesarias a Directions API
+    const routeKey = locations.map(l => `${l.lat},${l.lng}`).join('|');
+    if (routeKey === lastRouteKey.current) {
+      return; // Las coordenadas no cambiaron, no llamar a Directions API
+    }
+    lastRouteKey.current = routeKey;
+
     const directionsService = new google.maps.DirectionsService();
 
     const origin = locations[0];
@@ -687,6 +697,14 @@ function MapComponent({
     }
 
     const lastStop = locations[locations.length - 1];
+
+    // Crear key para evitar llamadas innecesarias a Directions API
+    const returnLegKey = `${lastStop.lat},${lastStop.lng}|${returnLegDestination.lat},${returnLegDestination.lng}`;
+    if (returnLegKey === lastReturnLegKey.current) {
+      return; // Las coordenadas no cambiaron, no llamar a Directions API
+    }
+    lastReturnLegKey.current = returnLegKey;
+
     const directionsService = new google.maps.DirectionsService();
 
     directionsService.route(
