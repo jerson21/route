@@ -656,8 +656,12 @@ function MapComponent({
     // para evitar llamadas innecesarias a Directions API
     const routeKey = locations.map(l => `${l.lat},${l.lng}`).join('|');
     if (routeKey === lastRouteKey.current) {
+      console.log('[DIRECTIONS] Skipping - coordinates unchanged');
       return; // Las coordenadas no cambiaron, no llamar a Directions API
     }
+    console.log('[DIRECTIONS] Calling API - route coordinates changed');
+    console.log('[DIRECTIONS] Old key:', lastRouteKey.current?.substring(0, 50) + '...');
+    console.log('[DIRECTIONS] New key:', routeKey.substring(0, 50) + '...');
     lastRouteKey.current = routeKey;
 
     const directionsService = new google.maps.DirectionsService();
@@ -701,8 +705,10 @@ function MapComponent({
     // Crear key para evitar llamadas innecesarias a Directions API
     const returnLegKey = `${lastStop.lat},${lastStop.lng}|${returnLegDestination.lat},${returnLegDestination.lng}`;
     if (returnLegKey === lastReturnLegKey.current) {
+      console.log('[DIRECTIONS] Skipping return leg - coordinates unchanged');
       return; // Las coordenadas no cambiaron, no llamar a Directions API
     }
+    console.log('[DIRECTIONS] Calling API - return leg coordinates changed');
     lastReturnLegKey.current = returnLegKey;
 
     const directionsService = new google.maps.DirectionsService();
