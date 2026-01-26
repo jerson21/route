@@ -1069,6 +1069,13 @@ export function RouteDetailPage() {
     return locations;
   }, [route]);
 
+  // Memoizar returnLegDestination para evitar llamadas innecesarias a Google Directions API
+  // Sin esto, cada render creaba un nuevo objeto { lat, lng } que disparaba el useEffect
+  const returnLegDestination = useMemo(() => {
+    if (!route?.depot) return undefined;
+    return { lat: route.depot.latitude, lng: route.depot.longitude };
+  }, [route?.depot?.latitude, route?.depot?.longitude]);
+
   if (isLoading) {
     return (
       <div className="h-full flex items-center justify-center">
@@ -1946,7 +1953,7 @@ export function RouteDetailPage() {
             locations={mapLocations}
             showRoute={mapLocations.length >= 2}
             showReturnLeg={!!route.depot && route.stops.length > 0}
-            returnLegDestination={route.depot ? { lat: route.depot.latitude, lng: route.depot.longitude } : undefined}
+            returnLegDestination={returnLegDestination}
             driverLocation={driverLocation || undefined}
             focusLocation={focusLocation || undefined}
             onFocusComplete={() => setFocusLocation(null)}
