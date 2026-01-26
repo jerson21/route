@@ -39,6 +39,9 @@ interface RouteMapProps {
 // Santiago de Chile por defecto
 const SANTIAGO_CENTER = { lat: -33.4489, lng: -70.6693 };
 
+// Libraries para Google Maps - debe ser constante para evitar remontaje del Wrapper
+const GOOGLE_MAPS_LIBRARIES: ('places' | 'marker')[] = ['places', 'marker'];
+
 // Crear elemento HTML para AdvancedMarkerElement
 // Simplificado: siempre muestra el número, el color indica el estado
 function createMarkerElement(
@@ -938,7 +941,7 @@ export function RouteMap({ apiKey, ...props }: RouteMapProps) {
   }
 
   return (
-    <Wrapper apiKey={apiKey} libraries={['places', 'marker']} render={renderStatus}>
+    <Wrapper apiKey={apiKey} libraries={GOOGLE_MAPS_LIBRARIES} render={renderStatus}>
       <MapComponent {...props} />
     </Wrapper>
   );
