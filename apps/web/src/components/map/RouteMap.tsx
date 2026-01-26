@@ -388,6 +388,12 @@ function MapComponent({
   const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
   const stackedGroupsRef = useRef<Map<string, MapLocation[]>>(new Map());
 
+  // Debug: detectar montaje/desmontaje
+  useEffect(() => {
+    console.log('[MAP] MapComponent MOUNTED');
+    return () => console.log('[MAP] MapComponent UNMOUNTED');
+  }, []);
+
   // Inicializar mapa
   useEffect(() => {
     if (!mapRef.current || map) return;
