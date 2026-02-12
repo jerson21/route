@@ -26,6 +26,7 @@ interface OptimizationInput {
   driverStartTime: Date;  // When driver starts (e.g., 8:00 AM)
   driverEndTime: Date;    // When driver must finish (e.g., 6:00 PM)
   apiKey: string;
+  useHaversine?: boolean; // true = Haversine (gratis), false = Google Matrix API
 }
 
 interface OptimizedStop {
@@ -302,7 +303,7 @@ function minutesToDate(minutes: number, baseDate: Date): Date {
 export async function optimizeRouteWithTimeWindows(
   input: OptimizationInput
 ): Promise<OptimizationResult> {
-  const { depot, stops, driverStartTime, driverEndTime, apiKey } = input;
+  const { depot, stops, driverStartTime, driverEndTime, apiKey, useHaversine = false } = input;
 
   if (stops.length === 0) {
     return {
@@ -319,8 +320,18 @@ export async function optimizeRouteWithTimeWindows(
   if (stops.length === 1) {
     // Single stop - no optimization needed, just calculate times
     const stop = stops[0];
-    const matrix = await getDistanceMatrix([depot], [{ lat: stop.lat, lng: stop.lng }], apiKey);
-    const travelTime = matrix.durations[0][0];
+    const stopLoc = { lat: stop.lat, lng: stop.lng };
+    let travelTime: number;
+    let travelDistance: number;
+    if (useHaversine) {
+      const m = getDistanceMatrixHaversine([depot, stopLoc]);
+      travelTime = m.durations[0][1];
+      travelDistance = m.distances[0][1];
+    } else {
+      const m = await getDistanceMatrix([depot], [stopLoc], apiKey);
+      travelTime = m.durations[0][0];
+      travelDistance = m.distances[0][0];
+    }
     const arrival = new Date(driverStartTime.getTime() + travelTime * 60000);
 
     return {
@@ -335,7 +346,7 @@ export async function optimizeRouteWithTimeWindows(
         canMakeTimeWindow: true,
         travelTimeFromPrevious: travelTime
       }],
-      totalDistance: matrix.distances[0][0],
+      totalDistance: travelDistance,
       totalDuration: travelTime + stop.serviceMinutes,
       totalWaitTime: 0,
       unserviceableStops: [],
@@ -347,8 +358,10 @@ export async function optimizeRouteWithTimeWindows(
   const allLocations = [depot, ...stops.map(s => ({ lat: s.lat, lng: s.lng }))];
 
   // Get full distance matrix
-  console.log(`Fetching distance matrix for ${allLocations.length} locations...`);
-  const matrix = await getDistanceMatrix(allLocations, allLocations, apiKey);
+  console.log(`Fetching distance matrix for ${allLocations.length} locations... (${useHaversine ? 'Haversine' : 'Google API'})`);
+  const matrix = useHaversine
+    ? getDistanceMatrixHaversine(allLocations)
+    : await getDistanceMatrix(allLocations, allLocations, apiKey);
 
   // Initialize
   const driverStartMinutes = driverStartTime.getHours() * 60 + driverStartTime.getMinutes();

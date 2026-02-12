@@ -1682,7 +1682,8 @@ router.post('/:id/optimize', requireRole('ADMIN', 'OPERATOR'), async (req: Reque
           })),
           driverStartTime: driverStart,
           driverEndTime: driverEnd,
-          apiKey
+          apiKey,
+          useHaversine
         });
 
         // Build optimized stop IDs with forced first/last stops
