@@ -153,6 +153,7 @@ export function RouteDetailPage() {
   const [loadingDb, setLoadingDb] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [firstStopId, setFirstStopId] = useState<string | null>(null); // Para forzar primera parada en optimización
+  const [lastStopId, setLastStopId] = useState<string | null>(null); // Para forzar última parada en optimización
   const [useHaversine, setUseHaversine] = useState(true); // Modo económico (Haversine) por defecto
   const [depotReturnTime, setDepotReturnTime] = useState<Date | null>(null); // Hora estimada de llegada al depot
 
@@ -871,11 +872,15 @@ export function RouteDetailPage() {
       return;
     }
 
-    // DEBUG: Log current firstStopId state
-    console.log('[OPTIMIZE FRONTEND] Starting optimization with firstStopId:', firstStopId);
-    const selectedStop = firstStopId ? route.stops.find(s => s.id === firstStopId) : null;
-    if (selectedStop) {
-      console.log('[OPTIMIZE FRONTEND] Selected first stop:', selectedStop.address.fullAddress);
+    // DEBUG: Log current firstStopId/lastStopId state
+    console.log('[OPTIMIZE FRONTEND] Starting optimization with firstStopId:', firstStopId, 'lastStopId:', lastStopId);
+    const selectedFirstStop = firstStopId ? route.stops.find(s => s.id === firstStopId) : null;
+    const selectedLastStop = lastStopId ? route.stops.find(s => s.id === lastStopId) : null;
+    if (selectedFirstStop) {
+      console.log('[OPTIMIZE FRONTEND] Selected first stop:', selectedFirstStop.address.fullAddress);
+    }
+    if (selectedLastStop) {
+      console.log('[OPTIMIZE FRONTEND] Selected last stop:', selectedLastStop.address.fullAddress);
     }
 
     setIsOptimizing(true);
@@ -897,6 +902,7 @@ export function RouteDetailPage() {
         driverStartTime: startDate.toISOString(),
         driverEndTime: endDate.toISOString(),
         firstStopId: firstStopId || undefined,
+        lastStopId: lastStopId || undefined,
         force: true, // Siempre recalcular cuando el usuario hace clic
         useHaversine // Modo económico (Haversine) vs Google Matrix API
       };
@@ -1293,14 +1299,32 @@ export function RouteDetailPage() {
                   onChange={(e) => {
                     const newValue = e.target.value || null;
                     setFirstStopId(newValue);
+                    if (newValue && newValue === lastStopId) setLastStopId(null);
                   }}
                   className="flex-1 min-w-0 text-sm border border-gray-300 rounded-lg px-2 py-2 bg-white text-gray-700 truncate"
                   title="Primera parada (opcional)"
                 >
                   <option value="">1ra: Auto</option>
                   {route.stops.filter(s => s.address.latitude && s.address.longitude).map((stop) => (
-                    <option key={stop.id} value={stop.id}>
+                    <option key={stop.id} value={stop.id} disabled={stop.id === lastStopId}>
                       1ra: {(stop.address.customerName || stop.address.fullAddress).substring(0, 18)}...
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={lastStopId || ''}
+                  onChange={(e) => {
+                    const newValue = e.target.value || null;
+                    setLastStopId(newValue);
+                    if (newValue && newValue === firstStopId) setFirstStopId(null);
+                  }}
+                  className="flex-1 min-w-0 text-sm border border-gray-300 rounded-lg px-2 py-2 bg-white text-gray-700 truncate"
+                  title="Última parada (opcional)"
+                >
+                  <option value="">Última: Auto</option>
+                  {route.stops.filter(s => s.address.latitude && s.address.longitude).map((stop) => (
+                    <option key={stop.id} value={stop.id} disabled={stop.id === firstStopId}>
+                      Última: {(stop.address.customerName || stop.address.fullAddress).substring(0, 18)}...
                     </option>
                   ))}
                 </select>
