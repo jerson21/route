@@ -727,17 +727,21 @@ router.post('/:id/load', async (req: Request, res: Response, next: NextFunction)
       throw new AppError(400, 'La ruta debe estar programada para marcar carga');
     }
 
+    const { loadingPhotoUrl } = req.body || {};
+
     const updatedRoute = await prisma.route.update({
       where: { id: req.params.id },
       data: {
-        loadedAt: new Date()
+        loadedAt: new Date(),
+        ...(loadingPhotoUrl && { loadingPhotoUrl })
       }
     });
 
     // Broadcast SSE event for truck loaded
     broadcastToRoute(req.params.id, 'route.loaded', {
       routeId: updatedRoute.id,
-      loadedAt: updatedRoute.loadedAt
+      loadedAt: updatedRoute.loadedAt,
+      loadingPhotoUrl: updatedRoute.loadingPhotoUrl
     });
 
     res.json({ success: true, data: updatedRoute });

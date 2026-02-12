@@ -154,6 +154,7 @@ model Route {
   // Driver workflow timestamps
   sentAt          DateTime? @map("sent_at") // When route was sent to driver (visible in app)
   loadedAt        DateTime? @map("loaded_at") // When truck was loaded
+  loadingPhotoUrl String?   @map("loading_photo_url") // Photo of loaded truck
   actualStartTime DateTime? @map("actual_start_time") // Real start time (vs scheduled)
   pausedAt        DateTime? @map("paused_at") // When route was paused
 
