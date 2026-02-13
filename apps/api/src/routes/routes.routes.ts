@@ -2640,6 +2640,80 @@ router.post('/:id/stops/:stopId/in-transit', async (req: Request, res: Response,
   }
 });
 
+// POST /routes/:id/stops/:stopId/approaching - Notificar al cliente que el repartidor está llegando (webhook)
+router.post('/:id/stops/:stopId/approaching', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { id: routeId, stopId } = req.params;
+
+    const route = await prisma.route.findUnique({
+      where: { id: routeId },
+      include: {
+        depot: true,
+        assignedTo: true
+      }
+    });
+
+    if (!route) {
+      throw new AppError(404, 'Ruta no encontrada');
+    }
+
+    if (req.user!.role === 'DRIVER' && route.assignedToId !== req.user!.id) {
+      throw new AppError(403, 'No puedes notificar para esta parada');
+    }
+
+    if (route.status !== 'IN_PROGRESS') {
+      throw new AppError(400, 'La ruta debe estar en progreso');
+    }
+
+    const stop = await prisma.stop.findUnique({
+      where: { id: stopId },
+      include: { address: true }
+    });
+
+    if (!stop || stop.routeId !== routeId) {
+      throw new AppError(404, 'Parada no encontrada en esta ruta');
+    }
+
+    // Enviar webhook stop.approaching para notificar al cliente
+    const webhookConfig = await getWebhookConfig();
+    if (webhookConfig.enabled && webhookConfig.url) {
+      const notifConfig = await getNotificationConfig();
+
+      const payload: WebhookPayload = {
+        event: 'stop.approaching',
+        timestamp: new Date().toISOString(),
+        route: buildRoutePayload(route),
+        driver: buildDriverPayload(route.assignedTo),
+        stop: buildStopWithWindowPayload(stop, notifConfig.etaWindowBefore, notifConfig.etaWindowAfter),
+        metadata: {
+          driverLocation: route.driverLatitude && route.driverLongitude ? {
+            latitude: route.driverLatitude,
+            longitude: route.driverLongitude,
+            updatedAt: route.driverLocationAt?.toISOString()
+          } : null
+        }
+      };
+
+      sendWebhook(webhookConfig.url, payload, webhookConfig.secret).catch(err => {
+        console.error('[APPROACHING] Webhook error:', err);
+      });
+    }
+
+    // Broadcast SSE event to web clients
+    broadcastToRoute(routeId, 'stop.approaching', {
+      stop,
+      driverLocation: route.driverLatitude && route.driverLongitude ? {
+        latitude: route.driverLatitude,
+        longitude: route.driverLongitude
+      } : null
+    });
+
+    res.json({ success: true, data: stop });
+  } catch (error) {
+    next(error);
+  }
+});
+
 // POST /routes/:id/duplicate - Duplicar ruta (crear copia con nueva fecha)
 router.post('/:id/duplicate', requireRole('ADMIN', 'OPERATOR'), async (req: Request, res: Response, next: NextFunction) => {
   try {

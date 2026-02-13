@@ -9,6 +9,7 @@ export type WebhookEventType =
   | 'stop.failed'
   | 'stop.skipped'
   | 'stop.in_transit'
+  | 'stop.approaching'
   | 'eta.updated';
 
 // Webhook payload structures
